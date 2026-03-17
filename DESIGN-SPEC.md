@@ -42,6 +42,8 @@ Custom Frontend (Next.js on Vercel)
 - Stale/overdue indicators are always accurate (computed live, not batch)
 - System is usable without any training beyond a 10-minute walkthrough
 - Chad can log an activity from his phone in under 15 seconds
+- Chad can complete his entire morning routine — check dashboard, make 5 calls, log all of them with next actions, advance 2 stages — in under 10 minutes without feeling like "data entry"
+- On desktop, Chad can do a full activity log + next action update without touching the mouse
 - System ships with mock data; IT team can switch to live Zoho by implementing one provider file
 
 ---
@@ -55,6 +57,7 @@ Every individual in the system exists once. A person can have multiple roles: Pr
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | Full Name | Text | Yes | |
+| Created Date | Date | Auto | Auto-set on record creation. Not editable. |
 | Email | Email | No | |
 | Phone | Phone | No | |
 | Organization | Lookup: Organization | No | Link to parent org |
@@ -64,12 +67,14 @@ Every individual in the system exists once. A person can have multiple roles: Pr
 | Initial Investment Target ($) | Currency | No | Dollar amount prospect has indicated |
 | Growth Target ($) | Currency | No | Longer-term target if they scale up |
 | Committed Amount ($) | Currency | No | Verbal commitment — populate at Soft Commit+ |
+| Commitment Date | Date | Auto | Auto-set when Committed Amount is first entered or changed |
 | Next Action Type | Picklist | Yes | Follow Up, Schedule Meeting, Send Document, Request Info, Make Introduction, Internal Review, Other |
 | Next Action Detail | Text (250 chars) | Yes | Specific context: "Q3 performance deck" |
 | Next Action Date | Date | Yes | Date the next action is due |
-| Days Since Last Touch | Auto-calculated | Auto | Computed live from latest Activity date |
+| Stage Changed Date | Date | Auto | Auto-updated on every stage change. Enables pipeline velocity reporting without scanning activity log. |
+| Days Since Last Touch | Auto-calculated | Auto | Computed live from latest Activity date. Excludes Stage Change and Reassignment activity types — only real interactions count (calls, emails, meetings, notes, texts, LinkedIn, WhatsApp, documents). |
 | Lead Source | Picklist | Yes | 10 values — see Section 4.2 |
-| Assigned Rep | Lookup: User | Yes | Primary owner of the relationship |
+| Assigned Rep | Lookup: User | Yes | Primary owner of the relationship. Admin-only to change after creation (see Section 5.6). |
 | Collaborators | Multi-select: User | No | Other team members involved |
 | Notes | Long Text | No | Freeform context |
 | Lost/Dead Reason | Picklist | Conditional | Required when stage = Dead. Values: Not Accredited, Not Interested, Ghosted, Timing, Went Elsewhere, Other |
@@ -113,6 +118,7 @@ Every individual in the system exists once. A person can have multiple roles: Pr
 | Source | Auto | Auto | Manual, Zoho Telephony, O365 Sync |
 | Date | Date | Yes | Default: today |
 | Time | Time | No | |
+| Outcome | Toggle | Yes | Connected (default) or Attempted. Attempted = no meaningful two-way exchange (voicemail, no-show, no reply). |
 | Detail / Summary | Long Text | Yes | What happened |
 | Documents Attached | File Upload | No | PDFs, decks, etc. |
 | Logged By | Lookup: User | Auto | Auto-populated from logged-in user |
@@ -183,6 +189,7 @@ Configurable via admin panel.
 | Stage Change | Auto on stage change | N/A |
 | Document Sent | Yes | No |
 | Document Received | Yes | No |
+| Reassignment | Auto on rep change | N/A |
 
 Configurable via admin panel.
 
@@ -210,7 +217,7 @@ Computed on every page load from activity data. No scheduled batch job needed �
 
 ### 5.2 Days Since Last Touch (Computed Live)
 
-Calculated as the number of days since the most recent Activity Log entry for a prospect. Computed on display, not stored.
+Calculated as the number of days since the most recent *real interaction* Activity Log entry for a prospect. **Excludes** Activity Type = "Stage Change" and "Reassignment" — these are audit trail entries, not engagement signals. Only calls, emails, meetings, notes, texts, LinkedIn, WhatsApp, and document activities count as touches. Computed on display, not stored.
 
 ### 5.3 Stage Change Auto-Log
 
@@ -219,6 +226,8 @@ When a prospect's stage changes, the system automatically creates an Activity Lo
 - Detail: "Stage updated from [Old] to [New]"
 - Date: today
 - Logged By: current user
+
+**Post-stage-change prompt:** After the stage change confirms, a contextual inline prompt appears showing the fields most likely to need updating: Next Action Type, Next Action Detail, Next Action Date, and Investment Target — pre-filled with current values. User can confirm with one click (Enter) if nothing changed, or update inline. This prevents the "advanced the stage but forgot to update the plan" drift that kills CRM data quality within weeks.
 
 ### 5.4 Funded Transition Flow
 
@@ -232,7 +241,24 @@ When stage → Funded:
 
 When stage → Nurture, Re-engage Date is required. On that date, the prospect automatically appears in the "Today's Actions" widget: "Re-engage: [Name] — parked since [date]."
 
-### 5.6 Zoho-Side Automations (IT Checklist)
+### 5.6 Rep Reassignment (Admin Only)
+
+Only Admins (Eric, Efri) can change the Assigned Rep on a prospect. This is intentionally restricted to prevent confusion about ownership.
+
+**When Assigned Rep changes:**
+1. System auto-logs an Activity: Type = "Reassignment", Detail = "Reassigned from [Old Rep] to [New Rep]", Logged By = admin who made the change
+2. The post-change prompt fires showing Next Action Type, Detail, and Date — admin confirms or updates on behalf of the new rep
+3. All existing data stays intact: activity history, next action, stage, relationships — nothing is lost or reset
+4. The prospect immediately appears on the new rep's dashboard. The "New" badge shows if the new rep hasn't logged activity on this prospect yet.
+5. The old rep loses ownership but can still view the prospect (per their role permissions). If they were a Collaborator, that remains.
+
+**Reassignment does NOT:**
+- Reset Days Since Last Touch (Reassignment is excluded from touch calculation)
+- Change the pipeline stage
+- Remove Collaborators
+- Delete or modify any activity history
+
+### 5.7 Zoho-Side Automations (IT Checklist)
 
 These run in Zoho, not in the frontend:
 - Daily overdue email to Chad (7 AM CT) — prospects where Next Action Date < today
@@ -250,13 +276,23 @@ These run in Zoho, not in the frontend:
 | `/pipeline` | Pipeline View | Chad, Ken | Full workhorse table |
 | `/person/[id]` | Person Detail | Chad, Ken | Edit record, log activity |
 | `/people` | People Directory | All | Search all people (prospects, contacts, referrers) |
-| `/leadership` | Leadership Dashboard | Eric, Efri | AUM, funnel, source ROI |
+| `/leadership` | Leadership Dashboard | Eric, Efri, Ken (partial) | AUM, funnel, source ROI. Ken sees Source Attribution + Top Referrers only. |
 | `/admin` | Admin Panel | Eric, Efri | System configuration |
 | `/login` | Login | All | Auth gate |
 
 **Mobile "Search" tab** maps to `/people` — a global search overlay that searches across all People regardless of role.
 
 ### 6.2 Chad's Daily Dashboard (`/`)
+
+**Last Viewed Bar (persistent, all screens):**
+Compact bar at the top of every screen: `Last: Robert Calloway · Active Engagement · 📞 Quick log...`
+Shows the most recently viewed prospect. Tapping the Quick Log area focuses the text field — Chad can log an activity without navigating back to the prospect's detail page. Tapping the name opens Person Detail. On mobile, this bar is especially critical — it eliminates the "find the prospect I just called" step. Resets when Chad views a different prospect.
+
+**Row 0: Today's Momentum** (single line, below nav, above stats):
+```
+Today: 8 activities logged · 2 stages advanced · 1 new prospect added
+```
+Auto-updating, resets daily at midnight CT. Factual mirror of effort — no gamification, no judgment. The difference between a system that takes from Chad (data entry) and one that sees him.
 
 **Row 1: Quick Stats Bar** — 4 cards:
 1. Active Pipeline Count — prospects not in Nurture/Dead/Funded
@@ -265,10 +301,13 @@ These run in Zoho, not in the frontend:
 4. Funded YTD ($) — sum from Funded Investment records
 
 **Row 2 Left (60%): Today's Actions**
-- Prospects where Next Action Date = today, sorted by dollar value descending
-- Also includes Nurture prospects where Re-engage Date = today
+- Prospects where Next Action Date = today (or selected range), sorted by dollar value descending
+- Also includes Nurture prospects where Re-engage Date falls within the selected range
+- **Date toggle:** **Today | Tomorrow | This Week** — default is Today. Lets Chad prep for upcoming days without leaving the dashboard.
 - Columns: Name, Company, Stage, Initial Investment, Next Action Type + Detail
+- **"New" badge:** Prospects created by someone other than the Assigned Rep show a gold "New" badge for the first 24 hours or until the Assigned Rep logs their first activity on the record (whichever comes first). This is the handoff signal — when Ken or Eric creates a prospect and assigns it to Chad, it's immediately visible as something new that needs his attention.
 - Click row → `/person/[id]`
+- **Empty state (all actions complete):** "All caught up." followed by directional context: "[N] prospects need attention" (links to Needs Attention if any exist), or if Needs Attention is also empty: "Pipeline healthy — next action is [Name] on [date]." The system always answers "what should I do now?"
 
 **Row 2 Right (40%): Needs Attention**
 - Stale Flag = true OR Next Action Date < today (overdue)
@@ -276,6 +315,12 @@ These run in Zoho, not in the frontend:
 - Visually distinct (red-tinted border)
 - Columns: Name, Stage, Days Idle, Next Action, Next Action Date
 - Sorted by severity (most overdue first)
+
+**Row 3: Recent Activity (collapsible, collapsed by default)**
+- Reverse-chronological feed of all activities across all prospects, last 7 days
+- Columns: Date/Time, Person (linked), Activity Type, Outcome, Detail (truncated), Logged By
+- Filterable by rep (Admin sees all, rep defaults to own)
+- Serves three purposes: Chad's end-of-day "did I miss anyone?" check, Eric's lightweight oversight without micromanaging, and onboarding context for a new rep inheriting relationships
 
 ### 6.3 Pipeline View (`/pipeline`)
 
@@ -291,6 +336,14 @@ Full sortable table of all active pipeline records (excluding Nurture and Dead).
 
 **Row click:** Opens `/person/[id]`
 
+**Pinned Prospects:**
+Chad can pin up to 10 prospects to the top of Pipeline View (star icon on each row). Pinned prospects always appear above the separator line regardless of sort order or filters. One click to pin/unpin. Pin state is per-user (stored in user preferences, not on the prospect record). Transforms Pipeline View from "here's your entire world" to "here's what you're focused on this week, and everything else is below."
+
+**Inline row actions** (hover on desktop, swipe on mobile):
+1. **Quick Log** — compact inline text input opens directly on the row. Type, Enter, confirm Next Action, done. User never leaves Pipeline View. Identical behavior to Person Detail Quick Log (including smart prefix detection, outcome detection, and the Next Action prompt).
+2. **Advance Stage** — one-click to move to the next sequential stage (e.g., Pitch → Active Engagement). Fires the post-stage-change prompt inline. For non-sequential moves (Nurture, Dead, skip stages), user must open Person Detail.
+3. **Pin/Unpin** — star icon toggle.
+
 **Design notes:**
 - Dollar amounts right-aligned, formatted with $ and K/M abbreviation
 - Next Action and Next Action Date must be visible on every row — these are Chad's primary navigation tool
@@ -298,42 +351,66 @@ Full sortable table of all active pipeline records (excluding Nurture and Dead).
 
 ### 6.4 Person Detail (`/person/[id]`)
 
-#### 6.4.1 Header Panel
-Name, Organization (linked), Stage (editable dropdown with confirmation), Investment Target, Committed Amount, Next Action Type + Detail, Next Action Date, Stale flag. Click-to-call (📞) and click-to-email (✉️) next to phone/email.
+Two-zone layout: a fixed **Cockpit** (always visible, never scrolls off) and a scrollable **Detail Zone** below it. Chad lives in the cockpit — it contains everything he needs for a call. The detail zone is the filing cabinet for occasional reference and editing.
 
-#### 6.4.2 Stage Progression Bar
-Visual 9-step horizontal bar, current stage highlighted. Click a stage → confirmation dialog → auto-logs Stage Change activity. Nurture and Dead shown as separate actions (not in the bar).
+#### Cockpit (Fixed Top Zone)
 
-#### 6.4.3 Organization Section
-Linked Organization (if any). Autocomplete-or-create. Shows other prospects in the same org.
+**6.4.1 Identity Bar**
+Name, Organization (linked), Stage badge (color-coded), Investment Target, Stale indicator (red dot if stale).
 
-#### 6.4.4 Funding Entities Panel
-List of linked entities (name, type, status). Add button uses autocomplete-or-create. Nudge message at Commitment Processing / KYC if empty. Not required until Funded transition.
+**Click-to-call (📞):** Next to phone number. With Zoho provider: triggers Zoho PhoneBridge API to place the call (see Section 13 Phase 3). With mock provider: opens `tel:` link (native phone dialer on mobile, system default on desktop). Both create a Call activity entry.
 
-#### 6.4.5 Related Contacts Panel
-List of related people (name, role, company, phone/email). Add uses autocomplete-or-create from the unified People pool. Same person can appear as Related Contact on multiple prospects.
+**Click-to-email (✉️):** Next to email. Opens `mailto:` link. User manually logs the activity or it's captured via O365 sync (Zoho provider).
 
-#### 6.4.6 Referrer
-Single field showing who referred this prospect. Autocomplete-or-create from People pool. Shows referrer's other referrals for context.
+**6.4.2 Next Action Bar**
+Next Action Type + Detail + Date — editable inline, always visible. This is Chad's primary "what am I supposed to do?" signal. Date input uses quick-pick chips (see Section 6.9).
 
-#### 6.4.7 Quick Log (Default Activity Entry)
-Always visible above timeline. Single text input, type and hit Enter:
+**6.4.3 Recent Snapshot**
+Last 3 activities — compact format: type icon + date + first line of detail, truncated. Not the full timeline — a glance. Purpose: "Oh right, I sent him the deck on the 12th." Gives Chad instant context before a call without scrolling.
+
+**6.4.4 Quick Log**
+Always visible at the bottom of the cockpit. Single text input, type and hit Enter:
 
 ```
 💬 Quick log: Called Robert, discussed returns... [↵ Enter]
-                                      [+ More options]
 ```
 
-- Type defaults to "Note"
+- **Smart prefix detection:** Activity type auto-detected from what Chad types:
+  - `Called...` / `Spoke with...` → Call
+  - `Emailed...` / `Sent email...` → Email
+  - `Met with...` / `Meeting...` → Meeting
+  - `Texted...` → Text Message
+  - `LinkedIn...` / `DM'd...` → LinkedIn Message
+  - `Sent deck...` / `Sent PPM...` → Document Sent
+  - `Received docs...` → Document Received
+  - Anything else → Note (default)
+  - Type badge updates in real-time as Chad types. One tap to override if detection is wrong.
+- **Smart outcome detection:** Auto-sets Outcome to "Attempted" if text contains "voicemail," "no answer," "didn't pick up," "left message," or "no response." Connected stays default for everything else.
 - Date defaults to now
-- "+ More options" expands full form: Activity Type, Date, Time, Detail, Attachments
-- After submit: entry appears at top of timeline, Days Since Last Touch resets
+- "+ More options" expands full form: Activity Type, Date, Time, Outcome, Detail, Attachments
+- After submit: entry appears at top of Recent Snapshot, Days Since Last Touch resets
 
-#### 6.4.8 Activity Timeline
-Reverse-chronological list of all Activity Log entries.
+**Post-activity flow (continuous, no navigation):**
+
+After Quick Log submit, a compact inline prompt replaces the Quick Log area:
+
+```
+Next action? [Follow Up ▾] [Send Q3 deck     ] [Tomorrow ▾]  [✓ Confirm]
+                                          [↑ Advance to Active Engagement?]
+```
+
+1. **Next Action prompt:** Pre-filled with current values. Edit or hit Enter to keep. Not skippable — this prevents CRM decay.
+2. **Advance Stage shortcut:** Below the Next Action fields, a link: "Advance to [Next Stage]?" One tap → stage advances, prompt updates to show post-stage-change fields. The entire post-activity workflow — log, update next action, advance stage — happens in one continuous flow.
+3. After confirming, Quick Log resets and is ready for the next entry.
+
+#### Detail Zone (Scrollable Below Cockpit)
+
+**6.4.5 Activity Timeline**
+Full reverse-chronological list of all Activity Log entries.
 
 **Entry anatomy:**
 - Type icon (color-coded: blue=email, green=call, purple=meeting, amber=note, gray=stage change)
+- Outcome badge (small "Attempted" tag on non-connected activities — Connected doesn't show a badge since it's the default)
 - Date and time
 - Who logged it (important with multiple contributors)
 - Detail text
@@ -345,17 +422,40 @@ Reverse-chronological list of all Activity Log entries.
 ─── ➡️ Pitch → Active Engagement · Feb 5, 2026 ───
 ```
 
+**Reassignments** also render as timeline dividers:
+```
+─── 🔄 Reassigned: Chad Cormier → New Rep · Mar 15, 2026 ───
+```
+
 **Filter pills above timeline:**
 ```
 [All] [Calls] [Emails] [Meetings] [Notes] [Docs] [Stage Changes] [Auto ⚡]
 ```
 
-#### 6.4.9 Prospect Fields (Editable)
-All remaining prospect fields available for inline editing: Investment Target, Growth Target, Committed Amount, Lead Source, Rep, Collaborators, Notes, Lost/Dead Reason.
+**6.4.6 Stage Progression Bar**
+Visual 9-step horizontal bar, current stage highlighted. Click a stage → confirmation dialog → auto-logs Stage Change activity → fires post-stage-change prompt. Nurture and Dead shown as separate actions (not in the bar).
+
+**6.4.7 Organization Section**
+Linked Organization (if any). Autocomplete-or-create. Shows other prospects in the same org.
+
+**6.4.8 Funding Entities Panel**
+List of linked entities (name, type, status). Add button uses autocomplete-or-create. Nudge message at Commitment Processing / KYC if empty. Not required until Funded transition.
+
+**6.4.9 Related Contacts Panel**
+List of related people (name, role, company, phone/email). Add uses autocomplete-or-create from the unified People pool. Same person can appear as Related Contact on multiple prospects.
+
+**6.4.10 Referrer**
+Single field showing who referred this prospect. Autocomplete-or-create from People pool. Shows referrer's other referrals for context.
+
+**6.4.11 Background Notes**
+Collapsible section, visually de-emphasized. For static context only: accreditation details, personal interests, family situation, preferences. Placeholder text: *"Background context — use Quick Log for activities."* Intentionally positioned and styled to prevent misuse as an activity log substitute.
+
+**6.4.12 Prospect Fields (Editable)**
+All remaining prospect fields available for inline editing: Investment Target, Growth Target, Committed Amount, Lead Source, Collaborators, Lost/Dead Reason. Assigned Rep is visible but only editable by Admins (see Section 5.6).
 
 ### 6.5 Leadership Dashboard (`/leadership`)
 
-Eric's view. Read-only.
+Eric's view. Read-only. Ken has partial access — sees only Source Attribution and Top Referrers sections (his campaign performance data). All other sections (AUM bar, Funnel, Red Flags) are Admin-only.
 
 **Row 1: AUM Progress Bar**
 Horizontal bar: $60M baseline → current ($60M + funded from system) → $105M target. Shows % complete and dollar amount. Both endpoints labeled. Baseline ($60M) and target ($105M) are configurable in admin.
@@ -384,7 +484,30 @@ Global search and browse for all people in the system — prospects, referrers, 
 
 On mobile, this is the "Search" tab in the bottom navigation. Opens as a full-screen search with large tap targets.
 
-### 6.7 Admin Panel (`/admin`)
+### 6.7 Create Prospect Flow
+
+**Entry points:** Gold "+" button on Dashboard (top-right of Row 1) and Pipeline View (top-right of filter bar). On mobile: floating action button (bottom-right). Visible only to users with "Create new prospect" permission.
+
+**Minimum viable form (one screen, no tabs):**
+
+| Field | Required | Default |
+|---|---|---|
+| Full Name | Yes | — |
+| Phone | No | — |
+| Email | No | — |
+| Lead Source | Yes | — |
+| Next Action Type | Yes | "Follow Up" |
+| Next Action Detail | Yes | — |
+| Next Action Date | Yes | Tomorrow |
+| Assigned Rep | Yes | Current user |
+
+Pipeline Stage auto-sets to "Prospect." All other fields (Organization, Investment Target, etc.) are filled in later on Person Detail.
+
+**Autocomplete-or-create fires on Full Name** — if a matching Person already exists, the system shows the match with a badge: "Already exists as [Referrer/Contact]" → selecting adds the Prospect role. This prevents duplicates at the point of entry.
+
+**After creation:** Redirects to the new Person Detail page where Chad can add more context. If the creator is not the Assigned Rep (e.g., Ken creates and assigns to Chad), the "New" badge appears on Chad's dashboard immediately.
+
+### 6.8 Admin Panel (`/admin`)
 
 Eric/Efri only.
 
@@ -396,6 +519,41 @@ Eric/Efri only.
 5. **Activity Type Management** — add/remove/rename
 6. **Data Hygiene** — merge duplicate People, Organizations, Referrers. Auto-detection of similar entries (fuzzy match). One-click merge with cascade to all linked records. Rename with global update.
 7. **System Settings** — AUM baseline ($60M), AUM target ($105M), default rep assignment, company name
+
+### 6.9 Date Quick-Pick Chips
+
+Everywhere a Next Action Date is entered — Quick Log prompt, post-stage-change prompt, Create Prospect form, inline pipeline edit, Person Detail — the date input shows quick-pick chips before the calendar:
+
+```
+[Today] [Tomorrow] [+3d] [Mon] [Fri] [+1w] [+2w]  📅
+```
+
+One tap, done. The calendar icon (📅) opens a full date picker for specific dates, but most of the time Chad never needs it. "Mon" and "Fri" resolve to the next upcoming Monday/Friday. Chips are contextual to CT timezone.
+
+### 6.10 Keyboard Shortcuts (Desktop)
+
+The core loop — find, log, update, advance — should be achievable without touching the mouse.
+
+| Shortcut | Action | Context |
+|---|---|---|
+| `/` | Focus global search | Any screen |
+| `L` | Focus Quick Log input | Person Detail, Pipeline View (selected row) |
+| `Enter` | Submit Quick Log → auto-focuses Next Action prompt | Quick Log |
+| `Enter` | Confirm Next Action | Next Action prompt |
+| `S` | Advance to next stage (opens confirmation) | Person Detail |
+| `P` | Pin/unpin prospect | Pipeline View (selected row) |
+| `↑` `↓` | Navigate rows | Pipeline View, Dashboard lists |
+| `Enter` | Open selected row | Pipeline View, Dashboard lists |
+| `Esc` | Back / dismiss prompt / close dialog | Any screen |
+| `N` | Open Create Prospect form | Dashboard, Pipeline View |
+
+**Full keyboard loop example:** `/ → robert → Enter → L → Called Robert, reviewed Q3 numbers → Enter → Enter → done.` Full activity log + next action update, zero mouse.
+
+Shortcuts are discoverable via a `?` overlay (press `?` on any screen to see available shortcuts).
+
+### 6.11 Last Viewed Bar (Global)
+
+See Section 6.2 — the Last Viewed Bar is defined there as it appears on every screen. It persists across navigation: if Chad views Robert Calloway, then goes to Pipeline View, the bar still shows Robert with Quick Log access. This is the critical "I just hung up the phone" optimization.
 
 ---
 
@@ -409,10 +567,12 @@ Eric/Efri only.
 | Create new prospect | Yes | No | Yes |
 | Edit prospect fields | Yes | No | Yes |
 | Change pipeline stage | Yes | No | Yes |
+| Reassign prospect rep | No | No | Yes |
 | Log activity (all types) | Yes | Note + Doc Received only | Yes |
 | Attach documents | Yes | Yes | Yes |
 | Edit Next Action | Yes | No | Yes |
 | View leadership dashboard | No | No | Yes |
+| View Source Attribution & Referrer reports | No | Yes | Yes |
 | Admin panel access | No | No | Yes |
 | Manage users & roles | No | No | Yes |
 
@@ -511,23 +671,27 @@ One clean sans-serif (system or loaded). Tight, functional.
 Two workflows are primary on mobile:
 
 **1. Quick Log** — Chad logs an activity from his phone in <15 seconds:
-- Open app → dashboard
-- Tap prospect (or search)
-- Quick log input → type note → Enter
-- Done
+- Open app → Last Viewed bar shows the prospect he just called → tap Quick Log
+- Type note (smart prefix detects activity type) → Enter
+- Confirm/update Next Action (date quick-pick chips for thumb-friendly selection) → Enter
+- Done — 2 taps + 2 Enters, no searching required
+- **Alternate path** if Last Viewed isn't the right prospect: Dashboard → tap prospect (or Search tab → find prospect) → Quick Log
 
 **2. Daily Cockpit** — Morning briefing on the go:
-- Today's Actions — who to call, in order
+- Today's Momentum line — quick sense of progress
+- Today's Actions (with Today/Tomorrow/This Week toggle) — who to call, in order
 - Needs Attention — anything on fire
-- Tap prospect → see context, tap phone number to call
+- Tap prospect → Cockpit zone shows context + Quick Log, no scrolling needed to start working
 
 ### 10.2 Mobile Layout
 
 | Desktop | Mobile |
 |---|---|
-| Sidebar nav | Bottom tab bar: Dashboard, Search, + Log |
-| Pipeline table (10 columns) | Card list (name, stage, next action, stale dot) |
-| Prospect detail side panels | Stacked panels, quick log pinned to bottom |
+| Sidebar nav | Bottom tab bar: Dashboard, Search |
+| Last Viewed bar (top) | Last Viewed bar (top, same behavior) |
+| Pipeline table (10 columns) | Card list (name, stage, next action, stale dot, pin star) |
+| Person Detail: cockpit + detail zone | Cockpit zone fills viewport, detail zone scrolls below. Quick Log pinned to bottom of cockpit. |
+| Date picker | Quick-pick chips (large tap targets) + calendar fallback |
 | Full activity form | Quick log always visible, full form behind "more" |
 
 ### 10.3 Not Mobile-Optimized
@@ -613,6 +777,7 @@ interface DataService {
 
   // Activities
   getActivities(personId: string, filters?: ActivityFilters): Promise<Activity[]>
+  getRecentActivities(filters?: RecentActivityFilters): Promise<Activity[]> // cross-prospect feed, filterable by rep and date range
   createActivity(personId: string, data: CreateActivityInput): Promise<Activity>
   annotateActivity(activityId: string, note: string): Promise<Activity>
 
@@ -670,7 +835,14 @@ Ships with V1. Contains all sample data from the reference JSX prototype:
 - 3 funded investors with maintain/grow tracks
 - 30+ timeline entries (calls, emails, meetings, stage changes)
 - Sample organizations, funding entities, referrer relationships
-- Sample auto-synced activities (with ⚡AUTO badge) to demonstrate telephony/email integration appearance
+- Sample auto-synced activities (with ⚡AUTO badge and Source = "Zoho Telephony" or "O365 Sync") demonstrating the full integration appearance
+- Activity entries include Outcome field (mix of Connected and Attempted) to demonstrate the distinction
+- Commitment Date populated on prospects with Committed Amounts
+
+**Mock integration behavior:** The mock provider simulates the Zoho integrations so the full UI is reviewable without a Zoho connection:
+- **Click-to-call (📞):** Opens `tel:` link (native dialer on mobile). After returning to the app, a mock Call activity is pre-populated in Quick Log with type = Call. On Zoho provider, this would trigger PhoneBridge instead.
+- **Auto-synced entries:** Mock data includes sample telephony call logs and O365 email entries that display identically to how real Zoho-synced entries would appear — ⚡AUTO badge, Source field, Outcome, annotation prompt.
+- All UI elements (badges, filters, timeline rendering) work identically on mock and Zoho providers. The provider switch is invisible to the user.
 
 Data persists in memory during session. Resets on page reload (acceptable for demo/review purposes).
 
@@ -682,6 +854,8 @@ IT team implements against the same interface. See Section 13 for the full integ
 
 ## 13. Zoho Integration Checklist (for IT Team)
 
+> **Context for IT:** This frontend is the *only* interface the sales team uses. Zoho is the database and automation engine — users never log into Zoho's UI. Every field listed below must be exposed via API so the frontend can read/write it. The frontend handles all display, workflow prompts, and computed fields (stale flags, days idle) — Zoho just stores and syncs.
+
 ### Phase 1: Zoho Backend Setup
 
 - [ ] Confirm Zoho CRM edition (Professional+ required for custom modules and API access)
@@ -690,9 +864,13 @@ IT team implements against the same interface. See Section 13 for the full integ
 
 **Custom Modules:**
 - [ ] Create "People" module (or repurpose Contacts) with all fields from Section 2.1
+  - [ ] Include `Commitment Date` field (Date type) — auto-set by frontend when Committed Amount changes, but Zoho must store it
+  - [ ] Include `Committed Amount` (Currency) — verbal target, distinct from funded rollup
 - [ ] Create "Organizations" module with fields from Section 2.2
 - [ ] Create "Funding Entities" module with fields from Section 2.3
 - [ ] Create "Activity Log" custom related list under People with fields from Section 2.4
+  - [ ] Include `Outcome` field (picklist: Connected, Attempted) — new field, tracks whether two-way exchange occurred
+  - [ ] Include `Source` field (picklist: Manual, Zoho Telephony, O365 Sync) — distinguishes user-logged vs. auto-captured entries
 - [ ] Create "Funded Investments" module with fields from Section 2.5
 
 **Relationships:**
@@ -709,6 +887,7 @@ IT team implements against the same interface. See Section 13 for the full integ
 - [ ] Lead Source — 10 values from Section 4.2
 - [ ] Activity Type — 10 values from Section 4.3
 - [ ] Next Action Type — 7 values from Section 4.1
+- [ ] Activity Outcome — 2 values (Connected, Attempted)
 - [ ] Entity Type — 6 values (LLC, LLP, Trust, Individual, Corporation, Other)
 - [ ] Lost/Dead Reason — 6 values
 - [ ] Track — 2 values (Maintain, Grow)
@@ -725,25 +904,37 @@ IT team implements against the same interface. See Section 13 for the full integ
 - [ ] Map Zoho module API names to interface methods
 - [ ] Handle Zoho pagination (200 records per page)
 - [ ] Handle Zoho rate limits (API credits per day based on edition)
+- [ ] Implement `getRecentActivities()` — cross-prospect query sorted by date descending, filterable by user and date range (powers the Dashboard Recent Activity feed)
 - [ ] Set environment variables: `DATA_PROVIDER=zoho`, `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET`, `ZOHO_REFRESH_TOKEN`, `ZOHO_ORG_ID`
 - [ ] Test each endpoint: CRUD people, activities, funded investments, dashboard stats
 
 ### Phase 3: Communication Integrations
 
 **Zoho Telephony (Click-to-Call):**
-- [ ] Confirm Zoho PhoneBridge is active and configured
-- [ ] Expose call log data via API (direction, duration, recording URL, timestamp, linked contact)
-- [ ] Implement click-to-call endpoint that triggers Zoho telephony API
-- [ ] Map auto-captured calls to Activity Log entries with Source = "Zoho Telephony"
+
+> **Flow:** Chad taps 📞 on a prospect → frontend calls `/api/call/initiate` → backend triggers Zoho PhoneBridge API with prospect's phone number → Zoho places the call via configured telephony provider → call happens → Zoho auto-captures call log → frontend reads it as an Activity Log entry on next load.
+
+- [ ] Confirm Zoho PhoneBridge is active and configured with telephony provider (RingCentral, Twilio, etc.)
+- [ ] Implement click-to-call API endpoint: frontend sends prospect ID + phone number → backend calls Zoho PhoneBridge `make_call` API
+- [ ] Confirm Zoho auto-captures call logs (direction, duration, recording URL, timestamp, linked contact)
+- [ ] Expose call logs via API as Activity Log entries with Source = "Zoho Telephony"
+- [ ] Auto-set Outcome field on telephony entries: Connected if duration > 30s, Attempted if ≤ 30s (configurable threshold)
+- [ ] Map call recording URL to the Activity Log so it's playable/downloadable from the frontend timeline
 
 **Office 365 Email Sync:**
-- [ ] Configure Zoho ↔ O365 email integration
-- [ ] Match incoming/outgoing emails by prospect email address
+
+> **Flow:** Zoho's native O365 integration syncs emails bidirectionally. Emails matched to a prospect by email address appear as Activity Log entries in the frontend. The frontend only *reads* these — Zoho handles all sync logic.
+
+- [ ] Configure Zoho ↔ O365 email integration (Zoho Mail Integration or Zoho SalesInbox)
+- [ ] Confirm email matching: incoming/outgoing emails matched to People records by email address
 - [ ] Expose matched emails via API as Activity Log entries with Source = "O365 Sync"
-- [ ] Include email subject, body preview, and attachments
+- [ ] Include: email subject, body preview (first 500 chars), direction (inbound/outbound), attachments
+- [ ] Auto-set Outcome field: Connected if email is a reply in a thread (indicates two-way), Attempted if outbound with no reply within 48h
+- [ ] Ensure email activities include timestamp (sent/received time) mapped to Activity Log Date + Time fields
 
 **Deduplication:**
 - [ ] If Chad manually logs a call AND Zoho captures it automatically, prevent duplicate entries (match by timestamp ±5 min + same prospect)
+- [ ] Same for emails: if Chad manually logs "Sent Q3 deck" and O365 sync captures the same email, deduplicate (match by timestamp ±5 min + same prospect + Source differs)
 
 ### Phase 4: Zoho-Side Automations
 
@@ -754,6 +945,20 @@ IT team implements against the same interface. See Section 13 for the full integ
 ### Phase 5: Auth Migration (Zoho OAuth)
 
 See Section 8.2 for detailed migration steps.
+
+### IT Team Notes: Fields Computed by Frontend (Not Stored in Zoho)
+
+The following are calculated live by the frontend and do **not** need corresponding Zoho fields:
+
+- **Days Since Last Touch** — computed from latest Activity Log date
+- **Stale Flag** — computed from idle days vs. stage threshold + Next Action Date (see Section 5.1)
+- **Pipeline Value, Committed total, Funded YTD** — aggregated from stored fields at query time
+- **Commitment Date** — *is* stored in Zoho (set by frontend when Committed Amount changes), but the *trigger logic* lives in the frontend, not a Zoho workflow
+
+The following **are** stored in Zoho and written by the frontend:
+- **Commitment Date** — Date field, written whenever Committed Amount changes
+- **Activity Outcome** — Picklist (Connected/Attempted), written on every activity creation
+- **Activity Source** — Picklist (Manual/Zoho Telephony/O365 Sync), auto-set based on origin
 
 ---
 
@@ -780,7 +985,7 @@ Every view must handle three states consistently:
 |---|---|
 | **Loading** | Skeleton placeholders matching the layout shape. No spinners. Stat cards show animated pulse bars, table rows show gray blocks. |
 | **Error** | Inline error message with retry button. "Something went wrong — try again." Never a blank screen. Dashboard stat cards show "—" on individual failures without blocking the rest. |
-| **Empty** | Contextual empty state. Pipeline with no prospects: "No active prospects yet — add your first one." Needs Attention with no flags: green "Pipeline Healthy" indicator. Timeline with no activities: "No activity logged yet." |
+| **Empty** | Contextual empty state with direction. Pipeline with no prospects: "No active prospects yet — add your first one." Needs Attention with no flags: green "Pipeline Healthy" indicator. Today's Actions complete: "All caught up" + link to next priority (see 6.2). Timeline with no activities: "No activity logged yet." Every empty state answers "what should I do now?" — never just a dead end. |
 
 **Zoho token expiry (V2):** If an API call returns 401, silently refresh the token and retry once. If refresh fails, redirect to login with message: "Your session expired — please sign in again."
 
@@ -807,13 +1012,16 @@ If this needs to change in the future, add a "Fund" picklist to the Funded Inves
 ## 18. Out of Scope (V1)
 
 - Agora API integration (deferred)
-- Two-way email sync display in V1 (mock samples only)
-- Live Zoho telephony integration in V1 (mock samples only)
 - Investor portal / investor-facing access
 - DocuSign or subscription document workflow
 - Payment processing
 - Zoho Books or accounting integration
 - Native mobile app (responsive web handles mobile use cases)
+- Post-funded investor management workflows (re-investment, track management — to be decided: Zoho native or future module)
+
+**In scope (full UI ships with mock V1, live integration via Zoho provider):**
+- **O365 email sync display** — Zoho handles the sync, frontend displays synced emails as Activity Log entries with Source = "O365 Sync". Mock V1 ships with realistic sample entries showing the full UI: ⚡AUTO badge, email subject/preview, Outcome, annotation prompt. Switching to Zoho provider activates live sync — zero UI changes.
+- **Zoho telephony click-to-call** — Frontend shows 📞 button on all prospects. Mock V1 opens native dialer (`tel:` link) and pre-populates a Call activity. Zoho provider triggers PhoneBridge API instead, and call logs flow back automatically. The UI is identical in both modes.
 
 ---
 
