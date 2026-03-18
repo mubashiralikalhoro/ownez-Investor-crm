@@ -244,11 +244,22 @@ When a prospect's stage changes, the system automatically creates an Activity Lo
 
 ### 5.4 Funded Transition Flow
 
-When stage → Funded:
-1. **Entity already linked:** Dialog shows dropdown of linked Funding Entities. Select one.
-2. **No entity yet:** Dialog includes inline "Create Funding Entity" form (Entity Name, Entity Type) + investment fields (Amount, Date, Track).
-3. Creates Funded Investment record under the selected/created entity.
-4. Prospect stage moves to Funded.
+When stage → Funded, an inline form appears within the stage picker (no modal). Always creates a new entity — no "select existing" path.
+
+**Design decision:** Every funding event creates a new Funding Entity record. Existing entities linked to the prospect remain visible in the Relationships section for reference but are not reused in this flow.
+
+**Form fields:**
+- Entity Name (required, text)
+- Entity Type (required, select: LLC, LLP, Trust, Individual, Corporation, Other)
+- Amount Invested (required, currency)
+- Investment Date (date, default today)
+- Track (Maintain / Grow)
+- Growth Target (currency, only shown if Track = Grow)
+
+**On confirm (sequential):**
+1. Creates Funding Entity record linked to the prospect
+2. Creates Funded Investment record linked to the new entity + prospect (Next Check-In Date auto-set to +90 days)
+3. Stage moves to Funded
 
 ### 5.5 Nurture Re-engagement
 

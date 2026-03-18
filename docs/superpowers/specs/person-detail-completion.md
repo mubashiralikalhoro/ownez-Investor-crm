@@ -195,42 +195,29 @@ PATCH: body { assignedRepId: string }
 
 ## Task 7 — Funded Transition Flow
 
-**What:** Clicking Funded in the stage bar should open a specialized dialog to create a Funded Investment record, not just change the stage.
+**What:** Clicking Funded in the stage bar should open an inline form to create a new Funding Entity + Funded Investment record, then change the stage. Always creates a new entity — no "select existing entity" path.
 
-**Add `entities` prop to StageBar:**
-- `StageBarProps`: add `entities: FundingEntity[]`
-- `app/person/[id]/page.tsx` passes `entities` (already fetched)
-- ProfileCard (which renders StageBar) receives and passes it through
+**Design decision:** Always create a new entity. Each funded event is treated as a distinct investment vehicle. Existing linked entities are visible in the Relationships section for reference but are not reused in the funding flow.
+
+**No `entities` prop needed on StageBar** — the form always creates fresh.
 
 **UI changes (`components/person/stage-bar.tsx`):**
-- Add state: `fundedFlowOpen: boolean`, `fundedFormData: { entityId?, entityName?, entityType?, amountInvested, investmentDate, track, growthTarget? }`
+- Add state: `fundedFlowOpen: boolean`, form fields: `entityName`, `entityType`, `amountInvested`, `investmentDate` (default today), `track` ("maintain"), `growthTarget`
 - When user clicks Funded: set `fundedFlowOpen = true`
 - Render inline form (replaces picker):
-
-  **Path A — entities.length > 0:**
   ```
-  Select entity:    [dropdown of entities by name]
-  Amount Invested:  [$_____]
+  Entity Name:      [text input — required]
+  Entity Type:      [select: LLC, LLP, Trust, Individual, Corporation, Other — required]
+  Amount Invested:  [$_____ — required]
   Investment Date:  [date — default today]
   Track:            [Maintain / Grow]
-  Growth Target:    [$_____]  ← only if Track = Grow
+  Growth Target:    [$_____]  ← only shown if Track = Grow
   [Complete Funding →]  [Cancel]
   ```
-
-  **Path B — entities.length === 0:**
-  ```
-  Entity Name:      [text input]
-  Entity Type:      [select: LLC, LLP, Trust, Individual, Corporation, Other]
-  Amount Invested:  [$_____]
-  Investment Date:  [date — default today]
-  Track:            [Maintain / Grow]
-  Growth Target:    [$_____]  ← only if Track = Grow
-  [Complete Funding →]  [Cancel]
-  ```
-
+- "Complete Funding →" disabled until Entity Name, Entity Type, and Amount Invested are filled
 - On confirm (sequential API calls):
-  1. If Path B: `POST /api/persons/[id]/funding-entities` with `{ entityName, entityType }` → get back `{ id: newEntityId }`
-  2. `POST /api/persons/[id]/funded-investment` with `{ fundingEntityId, amountInvested, investmentDate, track, growthTarget, nextCheckInDate: +90 days from investmentDate }`
+  1. `POST /api/persons/[id]/funding-entities` with `{ entityName, entityType }` → get back `{ id: newEntityId }`
+  2. `POST /api/persons/[id]/funded-investment` with `{ fundingEntityId: newEntityId, amountInvested, investmentDate, track, growthTarget, nextCheckInDate: +90 days from investmentDate }`
   3. `PATCH /api/persons/[id]/stage` with `{ newStage: "funded" }`
   4. `router.refresh()`
 

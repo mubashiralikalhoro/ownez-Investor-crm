@@ -302,73 +302,90 @@ test.describe("Task 6: Post-stage-change inline next action prompt", () => {
 });
 
 // ─── Task 7: Funded Transition Flow ──────────────────────────────────────
+// Always creates a new entity — no "select existing" path.
 
-test.describe("Task 7a: Funded transition — entity already linked", () => {
+test.describe("Task 7: Funded transition — always create new entity", () => {
   test.beforeEach(async ({ page }) => {
     await resetData(page);
     await loginAs(page, "chad");
-    await page.goto("/person/p-torres"); // KYC/Docs, has Torres Family Trust entity
+    await page.goto("/person/p-marcus"); // Active Engagement, no pre-existing entities
   });
 
-  test("clicking Funded opens entity selection form", async ({ page }) => {
+  test("clicking Funded shows entity + investment creation form", async ({ page }) => {
     await page.click("text=click to change stage");
     await page.locator("button", { hasText: "Funded" }).click();
 
-    // Should show the funded transition form with existing entity dropdown
-    await expect(page.locator("text=/Torres Family Trust/i")).toBeVisible({ timeout: 3000 });
-    await expect(page.locator("button, text=/Complete Funding/i")).toBeVisible();
-  });
-
-  test("completing funding changes stage to Funded", async ({ page }) => {
-    await page.click("text=click to change stage");
-    await page.locator("button", { hasText: "Funded" }).click();
-
-    // Fill in investment fields
-    await page.locator("input[type='number']").first().fill("350000");
-    const dateInput = page.locator("input[type='date']").last();
-    await dateInput.fill("2026-03-18");
-    await page.locator("select").filter({ has: page.locator("option", { hasText: "Maintain" }) }).first().selectOption("maintain");
-
-    await page.locator("button", { hasText: /Complete Funding/i }).click();
-
-    await page.waitForLoadState("networkidle");
-    await expect(page.locator("[data-slot='badge']", { hasText: "Funded" })).toBeVisible({ timeout: 5000 });
-  });
-});
-
-test.describe("Task 7b: Funded transition — no entity yet", () => {
-  test.beforeEach(async ({ page }) => {
-    await resetData(page);
-    await loginAs(page, "chad");
-    await page.goto("/person/p-marcus"); // Active Engagement, no funding entities
-  });
-
-  test("clicking Funded with no entity shows create entity form", async ({ page }) => {
-    await page.click("text=click to change stage");
-    await page.locator("button", { hasText: "Funded" }).click();
-
-    // Should show entity creation fields
-    await expect(page.locator("input[placeholder*='Entity Name'], label", { hasText: /Entity Name/i })).toBeVisible({ timeout: 3000 });
+    // Always shows entity creation fields (never a dropdown of existing entities)
+    await expect(page.locator("input[placeholder*='Entity Name']").first()).toBeVisible({ timeout: 3000 });
     await expect(page.locator("select").filter({ has: page.locator("option", { hasText: "LLC" }) })).toBeVisible();
+    await expect(page.locator("button", { hasText: /Complete Funding/i })).toBeVisible();
   });
 
-  test("completing funded flow with new entity changes stage to Funded", async ({ page }) => {
+  test("Complete Funding button disabled until required fields filled", async ({ page }) => {
+    await page.click("text=click to change stage");
+    await page.locator("button", { hasText: "Funded" }).click();
+
+    const completeBtn = page.locator("button", { hasText: /Complete Funding/i });
+    await expect(completeBtn).toBeDisabled();
+
+    // Fill entity name only — still disabled (entity type + amount also required)
+    await page.locator("input[placeholder*='Entity Name']").first().fill("Johnson Capital LLC");
+    await expect(completeBtn).toBeDisabled();
+  });
+
+  test("Growth Target field only appears when Track = Grow", async ({ page }) => {
+    await page.click("text=click to change stage");
+    await page.locator("button", { hasText: "Funded" }).click();
+
+    // Growth Target hidden by default (Maintain)
+    await expect(page.locator("input[placeholder*='Growth Target'], label", { hasText: /Growth Target/i })).not.toBeVisible();
+
+    // Select Grow
+    await page.locator("select").filter({ has: page.locator("option", { hasText: "Grow" }) }).first().selectOption("grow");
+
+    // Growth Target now visible
+    await expect(page.locator("text=/Growth Target/i").first()).toBeVisible();
+  });
+
+  test("completing funded flow creates entity, investment, and changes stage to Funded", async ({ page }) => {
     await page.click("text=click to change stage");
     await page.locator("button", { hasText: "Funded" }).click();
 
     // Fill entity fields
-    const entityNameInput = page.locator("input[placeholder*='Entity Name']").first();
-    await entityNameInput.fill("Johnson Capital LLC");
+    await page.locator("input[placeholder*='Entity Name']").first().fill("Johnson Capital LLC");
     await page.locator("select").filter({ has: page.locator("option", { hasText: "LLC" }) }).first().selectOption("llc");
 
     // Fill investment fields
     await page.locator("input[type='number']").first().fill("300000");
     await page.locator("input[type='date']").last().fill("2026-03-18");
-    await page.locator("select").filter({ has: page.locator("option", { hasText: "Maintain" }) }).first().selectOption("maintain");
+    // Track defaults to Maintain — leave as-is
 
     await page.locator("button", { hasText: /Complete Funding/i }).click();
 
     await page.waitForLoadState("networkidle");
     await expect(page.locator("[data-slot='badge']", { hasText: "Funded" })).toBeVisible({ timeout: 5000 });
+  });
+
+  test("cancel button closes the form without changing stage", async ({ page }) => {
+    await page.click("text=click to change stage");
+    await page.locator("button", { hasText: "Funded" }).click();
+    await expect(page.locator("input[placeholder*='Entity Name']").first()).toBeVisible();
+
+    await page.locator("button", { hasText: "Cancel" }).click();
+
+    // Stage unchanged
+    await expect(page.locator("[data-slot='badge']", { hasText: "Active Engagement" })).toBeVisible();
+  });
+
+  test("funded flow works even when prospect already has entities (p-torres)", async ({ page }) => {
+    // p-torres already has Torres Family Trust — flow should still show create form, not a dropdown
+    await page.goto("/person/p-torres");
+    await page.click("text=click to change stage");
+    await page.locator("button", { hasText: "Funded" }).click();
+
+    // Should show create form, NOT a dropdown of existing entities
+    await expect(page.locator("input[placeholder*='Entity Name']").first()).toBeVisible({ timeout: 3000 });
+    // No entity selection dropdown (no <select> that lists "Torres Family Trust")
+    await expect(page.locator("option", { hasText: "Torres Family Trust" })).not.toBeVisible();
   });
 });

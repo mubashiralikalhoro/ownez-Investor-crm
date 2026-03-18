@@ -760,7 +760,9 @@ function mapZohoToFundedInvestment(record: any): FundedInvestment {
 
 ---
 
-#### `createFundedInvestment(data: Partial<FundedInvestment>): Promise<FundedInvestment>`
+#### `createFundedInvestment(data: Omit<FundedInvestment, "id">): Promise<FundedInvestment>`
+
+**Design note:** The funded transition flow always creates a new Funding Entity first, then creates the Funded Investment linked to it. There is no "select existing entity" path in the UI — every funding event produces a new entity record. Call `createFundingEntity()` first to get the entity ID, then call this method.
 
 **Endpoint:** `POST {API_BASE}/Funded_Investments`
 
@@ -775,10 +777,15 @@ curl -X POST "https://www.zohoapis.com/crm/v6/Funded_Investments" \
       "Amount_Invested": 500000,
       "Investment_Date": "2026-03-17",
       "Track": "Maintain",
+      "Growth_Target": null,
       "Next_Check_In_Date": "2026-06-17"
     }]
   }'
 ```
+
+**If Track = Grow**, include `"Growth_Target": <number>` in the payload.
+
+**Next_Check_In_Date** is always set to +90 days from `Investment_Date` by the frontend — no manual input required.
 
 ---
 
