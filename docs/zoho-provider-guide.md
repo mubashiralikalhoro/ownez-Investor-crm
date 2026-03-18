@@ -1084,6 +1084,112 @@ The chip picker stores and reads lead source values using the keys defined in `l
 
 ---
 
+---
+
+### 4.y New Methods — Added 2026-03-18 (Person Detail Completion)
+
+These methods were added to the DataService interface during the Person Detail Completion session. All Zoho provider implementations must include them.
+
+---
+
+#### `removeRelatedContact(prospectId: string, contactId: string): Promise<void>`
+
+Removes a related contact link from a prospect.
+
+**API route:** `DELETE /api/persons/[id]/related-contacts/[contactId]`
+
+**Zoho implementation:**
+```typescript
+async removeRelatedContact(prospectId: string, contactId: string): Promise<void> {
+  // Find the Related_Contact_Links junction record
+  const result = await zohoFetch("/coql", {
+    method: "POST",
+    body: JSON.stringify({
+      select_query: `SELECT id FROM Related_Contact_Links WHERE Prospect.id = '${prospectId}' AND Related_Contact.id = '${contactId}' LIMIT 1`
+    })
+  });
+  const linkId = result.data?.[0]?.id;
+  if (linkId) await zohoFetch(`/Related_Contact_Links/${linkId}`, { method: "DELETE" });
+}
+```
+
+Also see: `addRelatedContact` — already documented in Section 4 under Related Contacts.
+
+---
+
+#### `createFundedInvestment(data: Omit<FundedInvestment, "id">): Promise<FundedInvestment>`
+
+Creates a Funded Investment record linked to a Funding Entity and Person. Called as part of the Funded transition flow: `POST /api/persons/[id]/funded-investment`.
+
+**API route:** `POST /api/persons/[id]/funded-investment`
+
+**Request body:**
+```json
+{
+  "fundingEntityId": "ENTITY_ID",
+  "amountInvested": 250000,
+  "investmentDate": "2026-03-18",
+  "track": "maintain",
+  "growthTarget": null,
+  "nextCheckInDate": "2026-06-16"
+}
+```
+
+**Zoho implementation:**
+```typescript
+async createFundedInvestment(data: Omit<FundedInvestment, "id">): Promise<FundedInvestment> {
+  const result = await zohoFetch("/Funded_Investments", {
+    method: "POST",
+    body: JSON.stringify({
+      data: [{
+        Funding_Entity: { id: data.fundingEntityId },
+        Contact_Name: { id: data.personId },
+        Amount_Invested: data.amountInvested,
+        Investment_Date: data.investmentDate,
+        Track: data.track === "maintain" ? "Maintain" : "Grow",
+        Growth_Target: data.growthTarget ?? null,
+        Next_Check_In_Date: data.nextCheckInDate,
+        Description: data.notes ?? null,
+      }]
+    })
+  });
+  const id = result.data?.[0]?.details?.id;
+  return { ...data, id };
+}
+```
+
+**Note:** `nextCheckInDate` is calculated by the frontend as investment date + 90 days. The Zoho provider should store it as-is.
+
+---
+
+#### Stage Change Validation — Nurture & Dead
+
+`PATCH /api/persons/[id]/stage` now enforces required fields:
+
+| `newStage` | Required field | Error if missing |
+|---|---|---|
+| `nurture` | `reengageDate` (date string) | 400 `{ error: "reengageDate required for Nurture" }` |
+| `dead` | `lostReason` (string, one of `LOST_REASONS` keys) | 400 `{ error: "lostReason required for Dead" }` |
+
+The Zoho provider's `updatePerson` must handle these fields:
+- `reengageDate` → `Reengage_Date` (Date field on Contact)
+- `lostReason` → `Lost_Reason` (Picklist field on Contact)
+
+Both are already in the field mapping table above (Section 3).
+
+---
+
+#### Reassignment Auto-Log
+
+`PATCH /api/persons/[id]/rep` replaces the direct `updatePerson` call for admin rep changes. It:
+1. Looks up old and new rep names from `getUsers()`
+2. Calls `updatePerson(id, { assignedRepId: newRepId })`
+3. Calls `createActivity(...)` with `activityType: "reassignment"` and detail `"Reassigned from {oldName} to {newName}"`
+
+The Zoho provider's `createActivity` already handles the `reassignment` activity type — no changes needed. Ensure `reassignment` is a valid picklist value in the `Activity_Type` field on the `Activity_Logs` module (system-only, not shown as a manual option in the UI).
+
+---
+
 ## 5. Auto-Synced Activities (Telephony + Email)
 
 ### Reading Call Logs from Zoho Telephony

@@ -1,6 +1,6 @@
 # Person Detail — Completion Plan
 
-**Status:** Ready for execution
+**Status:** ✅ COMPLETE (implemented 2026-03-18, all 24 Playwright tests pass)
 **Tests:** `e2e/person-detail-completion.spec.ts`
 **Verify after each task:** `npm run build` (zero TS errors)
 

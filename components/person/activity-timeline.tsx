@@ -144,7 +144,9 @@ function TimelineEntry({
         {/* Line 3: metadata — logger, attempted, auto, docs */}
         <div className="mt-1 flex items-center gap-2 flex-wrap">
           {logger && (
-            <span className="text-xs text-muted-foreground">{logger.fullName}</span>
+            <span className="text-xs text-muted-foreground" title={logger.fullName}>
+              {logger.fullName.split(" ").map((n) => n[0]).join("")}
+            </span>
           )}
           {activity.outcome === "attempted" && (
             <span className="text-[10px] font-medium text-alert-red">Attempted</span>

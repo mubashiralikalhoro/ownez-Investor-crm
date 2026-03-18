@@ -24,6 +24,7 @@ export function QuickLog({ person }: QuickLogProps) {
   const [outcome, setOutcome] = useState<ActivityOutcome>("connected");
   const [submitting, setSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   // Next Action Prompt state
   const [showPrompt, setShowPrompt] = useState(false);
@@ -66,6 +67,7 @@ export function QuickLog({ person }: QuickLogProps) {
       setShowMore(false);
       setActivityType("note");
       setOutcome("connected");
+      setExpanded(false);
 
       // Show next action prompt — detail starts empty, old value as placeholder
       setShowPrompt(true);
@@ -108,6 +110,18 @@ export function QuickLog({ person }: QuickLogProps) {
         window.location.reload();
       }
     }
+  }
+
+  if (!expanded && !showPrompt && !showSuccess) {
+    return (
+      <button
+        onClick={() => setExpanded(true)}
+        className="w-full rounded-lg border border-dashed border-gold/25 px-3 py-2 text-xs text-muted-foreground/50 hover:border-gold/50 hover:text-gold transition-colors flex items-center gap-1.5"
+      >
+        <span className="text-sm font-light leading-none">+</span>
+        Log Activity
+      </button>
+    );
   }
 
   if (showSuccess) {
@@ -192,13 +206,14 @@ export function QuickLog({ person }: QuickLogProps) {
       />
 
       <div className="flex items-center justify-between">
-        <button
+        <div
+          role="button"
           onClick={() => setShowMore(!showMore)}
-          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-navy"
+          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-navy cursor-pointer"
         >
           {showMore ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
           {showMore ? "Less" : "More options"}
-        </button>
+        </div>
 
         {text && (
           <button

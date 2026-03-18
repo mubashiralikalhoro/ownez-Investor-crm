@@ -1,6 +1,6 @@
 # OwnEZ CRM — Development Handoff
 
-## Project State (as of 2026-03-18)
+## Project State (as of 2026-03-18, updated post-person-detail-completion session)
 
 Custom Next.js CRM frontend for OwnEZ Capital's HNW investor pipeline. Uses Zoho CRM as the database via API. Currently running with mock data provider — all features work without Zoho connection.
 
@@ -22,7 +22,54 @@ Custom Next.js CRM frontend for OwnEZ Capital's HNW investor pipeline. Uses Zoho
 - **"Log Activity" button** — slide-out sheet with prospect search + quick log
 - **Mobile responsive** — bottom tab bar, full-width layout, two-line queue rows
 
-### UX/UI Polish Session (2026-03-18 — this session)
+### Person Detail Completion + UX Polish (2026-03-18 — second session)
+
+#### Person Detail — 7 Missing Features (all via Ralph Loop)
+
+All 7 tasks completed. 24 Playwright E2E tests pass (`e2e/person-detail-completion.spec.ts`).
+
+**Task 1 — Related Contacts: Add & Remove**
+- `components/person/related-contacts.tsx` now `"use client"` with inline Add Contact form (people-search autocomplete + role input) and × remove buttons
+- New routes: `POST /api/persons/[id]/related-contacts`, `DELETE /api/persons/[id]/related-contacts/[contactId]`
+- `DataService.removeRelatedContact(prospectId, contactId)` added to interface + mock
+
+**Task 2 — Collaborators Field**
+- Collaborators row added to `components/person/profile-card.tsx` (after Assigned Rep)
+- Names with × remove; quiet `+ Add` text button opens inline `<select>` of available users
+- Reuses existing `PATCH /api/persons/[id]` — no new route
+
+**Task 3 — Reassignment Auto-Log**
+- New route `PATCH /api/persons/[id]/rep` — looks up old/new rep names, patches person, auto-logs `reassignment` activity
+- Assigned Rep select in ProfileCard now calls `/rep` endpoint
+
+**Task 4 — Nurture Stage: Re-engage Date Required**
+- Stage bar shows inline date prompt when Nurture is clicked (not immediate)
+- API validates: `nurture` requires `reengageDate` → 400 if missing
+
+**Task 5 — Dead Stage: Lost Reason Required**
+- Stage bar shows inline `<select>` of `LOST_REASONS` when Dead is clicked
+- Confirm disabled until reason selected; API validates `lostReason` required → 400
+
+**Task 6 — Post-Stage-Change Inline Prompt**
+- After any of the 9 active-progression stages: inline Next Action prompt (type + detail + date) instead of immediate refresh
+- Confirm calls `PATCH /api/persons/[id]/next-action` then `router.refresh()`; Skip refreshes directly
+
+**Task 7 — Funded Transition Flow**
+- Clicking Funded shows inline form: Entity Name, Entity Type, Amount, Date, Track (Maintain/Grow), Growth Target
+- Sequential calls: `POST /funding-entities` → `POST /funded-investment` → `PATCH /stage` → `router.refresh()`
+- New route: `app/api/persons/[id]/funded-investment/route.ts`
+- `DataService.createFundedInvestment(data)` added to interface + mock
+
+#### UX Polish (same session)
+
+- **Profile card**: Financial grid border removed (no card-within-card), label widths unified to `w-28 tracking-wide`, `CollaboratorsField` uses hidden `+ Add` button (consistent with other fields), null financials show "Not set" italic
+- **Stage bar**: "change stage" hint text invisible until hover (`text-transparent group-hover:text-muted-foreground/40`)
+- **Log Activity**: collapsed by default — renders as quiet `+ Log Activity` dashed button; expands on click, collapses after submit
+- **Organization section**: removed bold `<h3>` heading; now renders as inline row matching Lead Source / Rep / Collaborators (small muted label + value with pencil-on-hover)
+- **Committed "Not set"**: gold/60 italic when `canEdit && !value` — subtle nudge that field needs attention
+- **Phone/email**: pencil icon always visible at low opacity (`text-muted-foreground/25`) beside each pill; clicking pill still dials/emails; clicking pencil opens inline edit
+
+### UX/UI Polish Session (2026-03-18 — prior session)
 
 #### Smart Detection
 - `lib/smart-detection.ts` reviewed — code logic is correct. Bug report ("always shows note") is likely a UI render issue, not a detection issue. The `detectActivityType()` function runs pattern matching correctly; needs further investigation if the bug resurfaces.
@@ -165,19 +212,19 @@ docs/
 ## What's NOT Built Yet
 
 From DESIGN-SPEC.md, these features are still pending:
-- **Smart detection bug**: `detectActivityType()` may have a rendering issue in the Quick Log UI — code logic is correct but worth re-testing. Prefix patterns look correct in the file.
+- **Pipeline inline actions** — quick log, advance stage, pin/unpin from pipeline rows (HIGH PRIORITY — see next Ralph loop)
+- **Pinned Prospects** — star icon on pipeline rows
 - **Leadership Dashboard** (`/leadership`) — AUM progress, funnel, source ROI
 - **Admin Panel** (`/admin`) — user management, stage config, lead source management
 - **Last Viewed Bar** — persistent bar across all screens
 - **Keyboard shortcuts** — N, L, /, arrow keys, Enter, S, P, Esc, ? overlay
-- **Pipeline inline actions** — quick log, advance stage, pin/unpin from pipeline rows
-- **Pinned Prospects** — star icon on pipeline rows
 - **Duplicate detection** — autocomplete-or-create on prospect Full Name
 - **Create Prospect from People page** — currently only accessible from dashboard
 - **Zoho provider** (`lib/providers/zoho.ts`) — IT team builds this
 - **Mobile Quick Log** — floating action button
 - **Daily overdue email** — scheduled notification to Chad
 - **Lead Source admin management** — currently managed via `lib/constants.ts`; future admin panel section
+- **Smart detection re-test** — `detectActivityType()` code is correct; worth confirming in browser after all the recent changes
 
 ---
 

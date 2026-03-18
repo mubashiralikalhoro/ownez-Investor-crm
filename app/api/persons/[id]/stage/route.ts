@@ -13,7 +13,16 @@ export async function PATCH(
   try {
     const session = await requireSession();
     const { id } = await params;
-    const { newStage } = await request.json();
+    const body = await request.json();
+    const { newStage, reengageDate, lostReason } = body;
+
+    // Validate required fields for special stages
+    if (newStage === "nurture" && !reengageDate) {
+      return NextResponse.json({ error: "reengageDate is required for nurture stage" }, { status: 400 });
+    }
+    if (newStage === "dead" && !lostReason) {
+      return NextResponse.json({ error: "lostReason is required for dead stage" }, { status: 400 });
+    }
 
     const ds = await getDataService();
     const person = await ds.getPerson(id);
@@ -24,11 +33,20 @@ export async function PATCH(
     const oldStage = person.pipelineStage;
     const today = getTodayCT();
 
-    // Update person's stage
-    await ds.updatePerson(id, {
+    // Build update payload
+    const updatePayload: Partial<import("@/lib/types").Person> = {
       pipelineStage: newStage as PipelineStage,
       stageChangedDate: today,
-    });
+    };
+    if (newStage === "nurture" && reengageDate) {
+      updatePayload.reengageDate = reengageDate;
+    }
+    if (newStage === "dead" && lostReason) {
+      updatePayload.lostReason = lostReason;
+    }
+
+    // Update person's stage
+    await ds.updatePerson(id, updatePayload);
 
     // Auto-log stage change activity
     const oldLabel = oldStage ? STAGE_LABELS[oldStage] : "None";

@@ -32,10 +32,10 @@ export default async function RootLayout({
       <body className="font-sans antialiased bg-background text-foreground">
         {isLoggedIn ? (
           <div className="flex min-h-screen">
-            <Sidebar />
             <main className="md:ml-[180px] flex-1 min-h-screen pb-16 md:pb-0">
               {children}
             </main>
+            <Sidebar />
           </div>
         ) : (
           children

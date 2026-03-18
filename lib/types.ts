@@ -238,6 +238,7 @@ export interface DataService {
 
   // Funded Investments
   getFundedInvestments(personId: string): Promise<FundedInvestment[]>;
+  createFundedInvestment(data: Omit<FundedInvestment, "id">): Promise<FundedInvestment>;
 
   // Dashboard
   getDashboardStats(): Promise<DashboardStats>;
@@ -251,6 +252,7 @@ export interface DataService {
   getRelatedContacts(prospectId: string): Promise<(Person & { relationRole: string })[]>;
   addReferrer(prospectId: string, referrerId: string): Promise<void>;
   addRelatedContact(prospectId: string, contactId: string, role: string): Promise<void>;
+  removeRelatedContact(prospectId: string, contactId: string): Promise<void>;
   getReferrals(referrerId: string): Promise<PersonWithComputed[]>;
 
   // Analytics

@@ -23,7 +23,7 @@ export function RelationshipsSection({
   referrals,
 }: RelationshipsSectionProps) {
   const hasContent = entities.length > 0 || relatedContacts.length > 0 || referrer != null;
-  const [expanded, setExpanded] = useState(hasContent);
+  const [expanded, setExpanded] = useState(true);
 
   const count = [
     entities.length > 0,
@@ -52,7 +52,7 @@ export function RelationshipsSection({
         <div className="mt-3 space-y-5 pl-5">
           <ReferrerSection referrer={referrer} referrals={referrals} personId={person.id} />
           <FundingEntitiesPanel entities={entities} person={person} />
-          <RelatedContacts contacts={relatedContacts} />
+          <RelatedContacts contacts={relatedContacts} personId={person.id} />
         </div>
       )}
     </div>

@@ -14,7 +14,10 @@ export function OrganizationSection({
   orgMembers: PersonWithComputed[];
 }) {
   const router = useRouter();
-  const others = orgMembers.filter((m) => m.id !== person.id);
+  // Exclude the current person and related contacts (they're shown in related contacts section)
+  const others = orgMembers.filter(
+    (m) => m.id !== person.id && !m.roles.includes("related_contact")
+  );
   const [editing, setEditing] = useState(false);
   const [search, setSearch] = useState("");
   const [results, setResults] = useState<Organization[]>([]);
@@ -71,9 +74,7 @@ export function OrganizationSection({
 
   if (editing) {
     return (
-      <div>
-        <h3 className="mb-2 text-sm font-semibold text-navy">Organization</h3>
-        <div className="space-y-2">
+      <div className="space-y-2">
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -132,41 +133,38 @@ export function OrganizationSection({
               Cancel
             </button>
           </div>
-        </div>
       </div>
     );
   }
 
   return (
-    <div>
-      <h3 className="mb-2 text-sm font-semibold text-navy">Organization</h3>
-      {person.organizationName ? (
-        <div>
+    <div className="space-y-0.5">
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] text-muted-foreground w-28 shrink-0 tracking-wide">Organization</span>
+        {person.organizationName ? (
           <div
-            className="group flex items-center gap-2 cursor-pointer hover:bg-muted/50 -mx-2 px-2 py-0.5 rounded"
+            className="group flex items-center gap-2 cursor-pointer hover:bg-muted/30 -mx-1 px-1 py-0.5 rounded flex-1"
             onClick={() => setEditing(true)}
           >
-            <p className="text-sm flex-1">{person.organizationName}</p>
-            <Pencil size={10} className="text-muted-foreground/0 group-hover:text-muted-foreground/40 transition-colors shrink-0" />
+            <p className="text-xs font-medium text-navy flex-1">{person.organizationName}</p>
+            <Pencil size={9} className="text-transparent group-hover:text-muted-foreground/35 transition-colors shrink-0" />
           </div>
-          {others.length > 0 && (
-            <div className="mt-2">
-              <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">
-                Other contacts at this org
-              </p>
-              {others.map((m) => (
-                <p key={m.id} className="text-xs text-muted-foreground">{m.fullName}</p>
-              ))}
-            </div>
-          )}
+        ) : (
+          <button
+            onClick={() => setEditing(true)}
+            className="text-xs text-muted-foreground/50 italic hover:text-gold transition-colors"
+          >
+            + Add
+          </button>
+        )}
+      </div>
+      {others.length > 0 && (
+        <div className="pl-[calc(7rem+0.5rem)]">
+          <p className="text-[9px] text-muted-foreground/50 uppercase tracking-wider mb-0.5">Also at this org</p>
+          {others.map((m) => (
+            <p key={m.id} className="text-[11px] text-muted-foreground">{m.fullName}</p>
+          ))}
         </div>
-      ) : (
-        <button
-          onClick={() => setEditing(true)}
-          className="text-xs text-muted-foreground italic hover:text-gold transition-colors"
-        >
-          + Add organization
-        </button>
       )}
     </div>
   );

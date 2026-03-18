@@ -20,7 +20,7 @@ export async function Sidebar() {
         <SidebarNav role={session.role} />
 
         <div className="border-t border-navy-light px-5 py-4">
-          <p className="text-sm text-white/60">{session.fullName}</p>
+          <p className="text-sm text-white/60">{session.fullName.split(" ")[0]}</p>
           <LogoutButton />
         </div>
       </aside>

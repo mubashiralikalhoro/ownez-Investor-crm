@@ -116,7 +116,7 @@ let people: Person[] = [
   },
   {
     id: "p-huang", fullName: "Richard Huang", createdDate: "2026-02-22",
-    email: null, phone: null, organizationId: "org-8",
+    email: "rhuang@huangcapital.com", phone: "(214) 555-0134", organizationId: "org-8",
     roles: ["prospect"], pipelineStage: "prospect", stageChangedDate: "2026-02-22",
     initialInvestmentTarget: null, growthTarget: null, committedAmount: null, commitmentDate: null,
     nextActionType: "other", nextActionDetail: "Research background, prep outreach", nextActionDate: "2026-02-27",
@@ -576,6 +576,15 @@ export function createMockDataService(): DataService {
       return fundedInvestments.filter((fi) => fi.personId === personId);
     },
 
+    async createFundedInvestment(data: Omit<FundedInvestment, "id">): Promise<FundedInvestment> {
+      const newInvestment: FundedInvestment = {
+        id: `fi-${Date.now()}`,
+        ...data,
+      };
+      fundedInvestments.push(newInvestment);
+      return newInvestment;
+    },
+
     // ─── Dashboard ───
     async getDashboardStats(): Promise<DashboardStats> {
       const activePeople = people.filter(
@@ -632,6 +641,12 @@ export function createMockDataService(): DataService {
 
     async addRelatedContact(prospectId: string, contactId: string, role: string): Promise<void> {
       relatedContactLinks.push({ prospectId, contactId, role });
+    },
+
+    async removeRelatedContact(prospectId: string, contactId: string): Promise<void> {
+      relatedContactLinks = relatedContactLinks.filter(
+        (r) => !(r.prospectId === prospectId && r.contactId === contactId)
+      );
     },
 
     async getReferrals(referrerId: string): Promise<PersonWithComputed[]> {

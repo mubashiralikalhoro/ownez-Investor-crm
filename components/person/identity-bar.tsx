@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
-import { Phone, Mail, Plus } from "lucide-react";
+import { Phone, Mail, Plus, Pencil } from "lucide-react";
 import { formatCurrency } from "@/lib/format";
 import { STAGE_LABELS } from "@/lib/constants";
 import type { PersonWithComputed } from "@/lib/types";
@@ -77,16 +77,27 @@ export function IdentityBar({ person }: { person: PersonWithComputed }) {
             >
               Save
             </button>
+            <button onClick={() => setEditingField(null)} className="text-xs text-muted-foreground hover:text-navy">
+              Cancel
+            </button>
           </div>
         ) : person.phone ? (
-          <a
-            href={`tel:${person.phone}`}
-            className="inline-flex items-center gap-1.5 rounded-full bg-navy/8 px-3 py-1.5 text-xs font-medium text-navy hover:bg-gold/20 transition-colors"
-            onContextMenu={(e) => { e.preventDefault(); startEdit("phone"); }}
-          >
-            <Phone size={12} />
-            {person.phone}
-          </a>
+          <div className="group inline-flex items-center gap-1">
+            <a
+              href={`tel:${person.phone}`}
+              className="inline-flex items-center gap-1.5 rounded-full bg-navy/8 px-3 py-1.5 text-xs font-medium text-navy hover:bg-gold/20 transition-colors"
+            >
+              <Phone size={12} />
+              {person.phone}
+            </a>
+            <button
+              onClick={() => startEdit("phone")}
+              className="text-muted-foreground/25 hover:text-navy transition-colors"
+              aria-label="edit phone"
+            >
+              <Pencil size={10} />
+            </button>
+          </div>
         ) : (
           <button
             onClick={() => startEdit("phone")}
@@ -117,16 +128,27 @@ export function IdentityBar({ person }: { person: PersonWithComputed }) {
             >
               Save
             </button>
+            <button onClick={() => setEditingField(null)} className="text-xs text-muted-foreground hover:text-navy">
+              Cancel
+            </button>
           </div>
         ) : person.email ? (
-          <a
-            href={`mailto:${person.email}`}
-            className="inline-flex items-center gap-1.5 rounded-full bg-navy/8 px-3 py-1.5 text-xs font-medium text-navy hover:bg-gold/20 transition-colors"
-            onContextMenu={(e) => { e.preventDefault(); startEdit("email"); }}
-          >
-            <Mail size={12} />
-            {person.email}
-          </a>
+          <div className="group inline-flex items-center gap-1">
+            <a
+              href={`mailto:${person.email}`}
+              className="inline-flex items-center gap-1.5 rounded-full bg-navy/8 px-3 py-1.5 text-xs font-medium text-navy hover:bg-gold/20 transition-colors"
+            >
+              <Mail size={12} />
+              {person.email}
+            </a>
+            <button
+              onClick={() => startEdit("email")}
+              className="text-muted-foreground/25 hover:text-navy transition-colors"
+              aria-label="edit email"
+            >
+              <Pencil size={10} />
+            </button>
+          </div>
         ) : (
           <button
             onClick={() => startEdit("email")}
