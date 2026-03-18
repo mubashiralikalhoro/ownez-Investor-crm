@@ -117,8 +117,13 @@
   * {
     @apply border-border outline-ring/50;
   }
+  input, select, textarea {
+    --ring: #0b2049;
+    background-color: #ffffff !important;
+  }
   body {
     @apply bg-background text-foreground;
+    overflow-x: hidden;
   }
   html {
     @apply font-sans;

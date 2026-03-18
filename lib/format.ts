@@ -61,36 +61,41 @@ export function computeDateOffset(
   today?: string
 ): string {
   const todayStr = today ?? getTodayCT();
-  const date = new Date(todayStr + "T00:00:00");
+  // Use UTC noon to avoid timezone day-boundary issues
+  const date = new Date(todayStr + "T12:00:00Z");
+
+  function toDateStr(d: Date): string {
+    return d.toISOString().split("T")[0];
+  }
 
   switch (offset) {
     case "today":
       return todayStr;
     case "tomorrow":
-      date.setDate(date.getDate() + 1);
-      return date.toISOString().split("T")[0];
+      date.setUTCDate(date.getUTCDate() + 1);
+      return toDateStr(date);
     case "+3d":
-      date.setDate(date.getDate() + 3);
-      return date.toISOString().split("T")[0];
+      date.setUTCDate(date.getUTCDate() + 3);
+      return toDateStr(date);
     case "next_mon": {
-      const dayOfWeek = date.getDay();
+      const dayOfWeek = date.getUTCDay();
       const daysUntilMon = dayOfWeek === 0 ? 1 : dayOfWeek === 1 ? 7 : 8 - dayOfWeek;
-      date.setDate(date.getDate() + daysUntilMon);
-      return date.toISOString().split("T")[0];
+      date.setUTCDate(date.getUTCDate() + daysUntilMon);
+      return toDateStr(date);
     }
     case "next_fri": {
-      const dow = date.getDay();
+      const dow = date.getUTCDay();
       const daysUntilFri = dow === 0 ? 5 : dow <= 5 ? 5 - dow : 12 - dow;
       const days = daysUntilFri === 0 ? 7 : daysUntilFri;
-      date.setDate(date.getDate() + days);
-      return date.toISOString().split("T")[0];
+      date.setUTCDate(date.getUTCDate() + days);
+      return toDateStr(date);
     }
     case "+1w":
-      date.setDate(date.getDate() + 7);
-      return date.toISOString().split("T")[0];
+      date.setUTCDate(date.getUTCDate() + 7);
+      return toDateStr(date);
     case "+2w":
-      date.setDate(date.getDate() + 14);
-      return date.toISOString().split("T")[0];
+      date.setUTCDate(date.getUTCDate() + 14);
+      return toDateStr(date);
     default:
       return todayStr;
   }

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { getDataService } from "@/lib/data";
 import { requireSession } from "@/lib/auth";
 
@@ -18,6 +19,7 @@ export async function PATCH(
       nextActionDate: body.nextActionDate,
     });
 
+    revalidatePath(`/person/${id}`);
     return NextResponse.json(updated);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Something went wrong";

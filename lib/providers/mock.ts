@@ -13,6 +13,7 @@ import { hashSync } from "bcryptjs";
 const PW_HASH = hashSync("password123", 10);
 
 // ─── Users ───
+// Note: arrays are `let` so resetData() can restore them to initial state
 const users: User[] = [
   { id: "u-chad", username: "chad", fullName: "Chad Cormier", role: "rep", isActive: true, passwordHash: PW_HASH },
   { id: "u-ken", username: "ken", fullName: "Ken Warsaw", role: "marketing", isActive: true, passwordHash: PW_HASH },
@@ -21,7 +22,7 @@ const users: User[] = [
 ];
 
 // ─── Organizations ───
-const organizations: Organization[] = [
+let organizations: Organization[] = [
   { id: "org-1", name: "Calloway Family Office", type: "family_office", notes: null },
   { id: "org-2", name: "Kim Holdings LLC", type: "corporate", notes: null },
   { id: "org-3", name: "Thornton Capital", type: "corporate", notes: null },
@@ -41,7 +42,7 @@ const organizations: Organization[] = [
 ];
 
 // ─── People (12 Prospects + 3 Funded + 5 External) ───
-const people: Person[] = [
+let people: Person[] = [
   // === 12 PROSPECTS ===
   {
     id: "p-robert", fullName: "Robert Calloway", createdDate: "2026-01-10",
@@ -248,7 +249,7 @@ const people: Person[] = [
 ];
 
 // ─── Funding Entities ───
-const fundingEntities: FundingEntity[] = [
+let fundingEntities: FundingEntity[] = [
   { id: "fe-1", entityName: "Calloway Family Office LP", entityType: "llp", personId: "p-robert", status: "active", einTaxId: null, notes: null },
   { id: "fe-2", entityName: "Kim Holdings LLC", entityType: "llc", personId: "p-sandra", status: "active", einTaxId: null, notes: null },
   { id: "fe-3", entityName: "Whitfield Enterprises LLC", entityType: "llc", personId: "p-whitfield", status: "pending_setup", einTaxId: null, notes: "New LLC being set up by attorney" },
@@ -259,14 +260,14 @@ const fundingEntities: FundingEntity[] = [
 ];
 
 // ─── Funded Investments ───
-const fundedInvestments: FundedInvestment[] = [
+let fundedInvestments: FundedInvestment[] = [
   { id: "fi-1", fundingEntityId: "fe-5", personId: "p-morrison", amountInvested: 500000, investmentDate: "2026-01-15", track: "maintain", growthTarget: null, nextCheckInDate: "2026-03-15", notes: "Happy. Quarterly check-in." },
   { id: "fi-2", fundingEntityId: "fe-6", personId: "p-chang", amountInvested: 100000, investmentDate: "2026-02-01", track: "grow", growthTarget: 400000, nextCheckInDate: "2026-03-01", notes: "Toe-dipper. Target $500K total." },
   { id: "fi-3", fundingEntityId: "fe-7", personId: "p-reeves", amountInvested: 250000, investmentDate: "2025-12-01", track: "grow", growthTarget: 250000, nextCheckInDate: "2026-03-10", notes: "Wants to double after Q4 returns." },
 ];
 
 // ─── Activities (30+ entries from reference TIMELINE) ───
-const activities: Activity[] = [
+let activities: Activity[] = [
   // Robert Calloway activities
   { id: "a-1", personId: "p-robert", activityType: "meeting", source: "manual", date: "2026-02-24", time: "16:00", outcome: "connected", detail: "Coffee at Ascension. Reviewed performance data together. He pulled out a notepad and wrote down yield numbers — good sign. Wants vintage-level returns before committing. Wife is involved, may need a couple meeting. Asked about liquidity terms.", documentsAttached: ["Q3 Performance Summary.pdf", "Fund V Overview - 1 Pager.pdf"], loggedById: "u-chad", annotation: null },
   { id: "a-2", personId: "p-robert", activityType: "email", source: "manual", date: "2026-02-19", time: "11:00", outcome: "connected", detail: "Sent Q2 performance summary as requested after our Jan meeting.", documentsAttached: ["Q2 Performance Summary.pdf"], loggedById: "u-chad", annotation: null },
@@ -325,17 +326,36 @@ const activities: Activity[] = [
 ];
 
 // ─── Relationship Links ───
-const referrerLinks: ReferrerLink[] = [
+let referrerLinks: ReferrerLink[] = [
   { prospectId: "p-sandra", referrerId: "p-lawson" },
   { prospectId: "p-grant", referrerId: "p-tolleson-advisor" },
   { prospectId: "p-torres", referrerId: "p-lawson" },
 ];
 
-const relatedContactLinks: RelatedContactLink[] = [
+let relatedContactLinks: RelatedContactLink[] = [
   { prospectId: "p-whitfield", contactId: "p-whitfield-atty", role: "Attorney — handling LLC setup" },
   { prospectId: "p-robert", contactId: "p-mrs-calloway", role: "Spouse — involved in financial decisions" },
   { prospectId: "p-sandra", contactId: "p-kim-attorney", role: "Attorney — entity structure decision" },
 ];
+
+// ─── Initial state snapshots (for test reset) ───
+const INITIAL_ORGANIZATIONS = JSON.stringify(organizations);
+const INITIAL_PEOPLE = JSON.stringify(people);
+const INITIAL_FUNDING_ENTITIES = JSON.stringify(fundingEntities);
+const INITIAL_FUNDED_INVESTMENTS = JSON.stringify(fundedInvestments);
+const INITIAL_ACTIVITIES = JSON.stringify(activities);
+const INITIAL_REFERRER_LINKS = JSON.stringify(referrerLinks);
+const INITIAL_RELATED_CONTACT_LINKS = JSON.stringify(relatedContactLinks);
+
+function resetMockData() {
+  organizations = JSON.parse(INITIAL_ORGANIZATIONS);
+  people = JSON.parse(INITIAL_PEOPLE);
+  fundingEntities = JSON.parse(INITIAL_FUNDING_ENTITIES);
+  fundedInvestments = JSON.parse(INITIAL_FUNDED_INVESTMENTS);
+  activities = JSON.parse(INITIAL_ACTIVITIES);
+  referrerLinks = JSON.parse(INITIAL_REFERRER_LINKS);
+  relatedContactLinks = JSON.parse(INITIAL_RELATED_CONTACT_LINKS);
+}
 
 // ─── Helper: enrich person with computed fields ───
 function enrichPerson(person: Person): PersonWithComputed {
@@ -623,6 +643,22 @@ export function createMockDataService(): DataService {
           return enrichPerson(person);
         })
         .filter(Boolean) as PersonWithComputed[];
+    },
+
+    // ─── Analytics ───
+    async getLeadSourceCounts(): Promise<Record<string, number>> {
+      const counts: Record<string, number> = {};
+      for (const p of people) {
+        if (p.leadSource && p.roles.includes("prospect")) {
+          counts[p.leadSource] = (counts[p.leadSource] ?? 0) + 1;
+        }
+      }
+      return counts;
+    },
+
+    // ─── Testing ───
+    resetData() {
+      resetMockData();
     },
   };
 }

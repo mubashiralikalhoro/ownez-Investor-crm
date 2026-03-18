@@ -14,18 +14,18 @@ export function NeedsAttention({ people }: { people: PersonWithComputed[] }) {
 
   return (
     <div id="needs-attention">
-      <h2 className="mb-3 text-sm font-semibold text-navy">Needs Attention</h2>
+      <h2 className="mb-3 text-lg font-semibold text-navy">Needs Attention</h2>
 
       {sorted.length === 0 ? (
         <div className="rounded-lg border border-healthy-green/30 bg-healthy-green-light p-6 text-center">
-          <p className="text-sm font-medium text-healthy-green">Pipeline Healthy</p>
-          <p className="mt-1 text-xs text-muted-foreground">No stale or overdue prospects</p>
+          <p className="text-base font-medium text-healthy-green">Pipeline Healthy</p>
+          <p className="mt-1 text-sm text-muted-foreground">No stale or overdue prospects</p>
         </div>
       ) : (
         <div className="overflow-hidden rounded-lg border border-alert-red/20 bg-card">
-          <table className="w-full text-sm">
+          <table className="w-full text-base">
             <thead>
-              <tr className="border-b text-left text-xs text-muted-foreground">
+              <tr className="border-b text-left text-sm text-muted-foreground">
                 <th className="px-4 py-2.5 font-medium">Name</th>
                 <th className="px-4 py-2.5 font-medium">Stage</th>
                 <th className="px-4 py-2.5 font-medium text-right">Days Idle</th>
@@ -45,17 +45,17 @@ export function NeedsAttention({ people }: { people: PersonWithComputed[] }) {
                     </div>
                   </td>
                   <td className="px-4 py-3">
-                    <Badge variant="secondary" className="text-[10px]">
+                    <Badge variant="secondary" className="text-xs">
                       {person.pipelineStage ? STAGE_LABELS[person.pipelineStage] : "—"}
                     </Badge>
                   </td>
                   <td className="px-4 py-3 text-right tabular-nums font-medium text-alert-red">
                     {person.daysSinceLastTouch ?? "—"}
                   </td>
-                  <td className="px-4 py-3 text-xs text-muted-foreground">
+                  <td className="px-4 py-3 text-sm text-muted-foreground">
                     {person.nextActionDetail ?? "—"}
                   </td>
-                  <td className="px-4 py-3 text-xs">
+                  <td className="px-4 py-3 text-sm">
                     <span className={person.isOverdue ? "text-alert-red font-medium" : "text-muted-foreground"}>
                       {formatRelativeDate(person.nextActionDate)}
                     </span>

@@ -7,8 +7,8 @@ test.describe("End-to-End Workflow — Chad's Morning Routine", () => {
     await loginAs(page, "chad");
 
     // 2. Dashboard loads with stats
-    await expect(page.locator("text=Active Pipeline")).toBeVisible();
-    await expect(page.locator("text=Funded YTD")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+    await expect(page.getByText("Funded YTD")).toBeVisible();
 
     // 3. Navigate to Robert Calloway
     await page.goto("/person/p-robert");
@@ -16,10 +16,10 @@ test.describe("End-to-End Workflow — Chad's Morning Routine", () => {
 
     // 4. Person Detail Cockpit loads
     await expect(page.locator("text=Next Action")).toBeVisible();
-    await expect(page.locator('input[placeholder*="Quick log"]')).toBeVisible();
+    await expect(page.locator('input[placeholder*="discussed"]')).toBeVisible();
 
     // 5. Type in Quick Log
-    const quickLog = page.locator('input[placeholder*="Quick log"]');
+    const quickLog = page.locator('input[placeholder*="discussed"]');
     await quickLog.fill("Called Robert, discussed Q3 returns. Interested in Fund V details.");
 
     // 6. Verify badge shows "Call" type
@@ -41,7 +41,7 @@ test.describe("End-to-End Workflow — Chad's Morning Routine", () => {
     // 11. Navigate back to Dashboard
     await page.click("aside >> text=Dashboard");
     await expect(page).toHaveURL("/");
-    await expect(page.locator("text=Active Pipeline")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
 
     // 12. Navigate to Pipeline
     await page.click("aside >> text=Pipeline");

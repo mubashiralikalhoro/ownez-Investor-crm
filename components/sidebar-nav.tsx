@@ -34,13 +34,47 @@ export function SidebarNav({ role }: { role: UserRole }) {
           <Link
             key={item.href}
             href={item.href}
-            className={`flex items-center gap-2.5 rounded-md px-2 py-2 text-[13px] font-medium transition-colors ${
+            className={`flex items-center gap-2.5 rounded-md px-2 py-2 text-base font-medium transition-colors ${
               isActive
                 ? "text-gold bg-navy-light"
                 : "text-white/70 hover:bg-navy-light hover:text-white"
             }`}
           >
-            <Icon size={16} className="shrink-0" />
+            <Icon size={18} className="shrink-0" />
+            {item.label}
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}
+
+const MOBILE_NAV_ITEMS = NAV_ITEMS.filter((item) =>
+  ["Dashboard", "Pipeline", "People"].includes(item.label)
+);
+
+export function MobileNav({ role }: { role: UserRole }) {
+  const pathname = usePathname();
+
+  return (
+    <nav className="fixed bottom-0 left-0 right-0 z-40 flex md:hidden border-t bg-navy safe-bottom">
+      {MOBILE_NAV_ITEMS.filter((item) => item.roles.includes(role)).map((item) => {
+        const Icon = item.icon;
+        const isActive = item.href === "/"
+          ? pathname === "/"
+          : pathname.startsWith(item.href);
+
+        return (
+          <Link
+            key={item.href}
+            href={item.href}
+            className={`flex flex-1 flex-col items-center gap-1 py-3 text-[11px] font-medium transition-colors ${
+              isActive
+                ? "text-gold"
+                : "text-white/60"
+            }`}
+          >
+            <Icon size={20} />
             {item.label}
           </Link>
         );

@@ -75,6 +75,12 @@ export const LEAD_SOURCES: { key: string; label: string }[] = [
   { key: "other", label: "Other" },
 ];
 
+export const LEAD_SOURCE_GROUPS: { label: string; sources: string[] }[] = [
+  { label: "Referral", sources: ["cpa_referral", "ma_attorney", "tolleson_wm", "ken_dbj_list", "ken_event_followup"] },
+  { label: "Network / Event", sources: ["velocis_network", "legacy_event"] },
+  { label: "Direct", sources: ["linkedin", "cold_outreach", "other"] },
+];
+
 export const ACTIVITY_TYPES: {
   key: ActivityType;
   label: string;

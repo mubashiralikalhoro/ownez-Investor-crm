@@ -33,7 +33,7 @@ export default async function RootLayout({
         {isLoggedIn ? (
           <div className="flex min-h-screen">
             <Sidebar />
-            <main className="ml-[180px] flex-1 min-h-screen">
+            <main className="md:ml-[180px] flex-1 min-h-screen pb-16 md:pb-0">
               {children}
             </main>
           </div>

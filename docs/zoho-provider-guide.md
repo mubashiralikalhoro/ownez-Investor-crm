@@ -195,9 +195,15 @@ export class ZohoProvider implements DataService {
 | `time` | `Activity_Time` | Text | Store as "HH:MM" string |
 | `outcome` | `Outcome` | Picklist | Connected, Attempted |
 | `detail` | `Detail` | Long Text | |
-| `documentsAttached` | `Documents_Attached` | Text | JSON array of file names, or use Zoho attachments API |
+| `documentsAttached` | `Documents_Attached` | Text | JSON array of `{ name, url }` objects. Use Zoho Attachments API to get download URLs. See note below. |
 | `loggedById` | `Logged_By` | Lookup(Users) | Or use Owner field |
 | `annotation` | `Annotation` | Long Text | For notes on auto-synced entries |
+
+> **Document Attachment URLs:** The frontend activity timeline displays document names as clickable links. To support this, `documentsAttached` must be an array of `{ name: string, url: string }` objects — not just file names. Fetch attachment metadata from the Zoho Attachments API:
+> ```bash
+> GET {API_BASE}/Activity_Logs/{RECORD_ID}/Attachments
+> ```
+> Response includes `file_Name` and a download URL. Map these to `{ name, url }` when building the activity response. The frontend renders `name` as the link label and opens `url` on click.
 
 ### Funded Investment Field Mapping
 
@@ -319,6 +325,8 @@ Map using `mapZohoContactToPerson()`, then enrich to `PersonWithComputed`.
 ---
 
 #### `createPerson(data: Partial<Person>): Promise<Person>`
+
+> **Frontend API route:** `POST /api/persons` → calls `ds.createPerson()`. The frontend Create Prospect form (slide-out sheet on Dashboard) sends to this route. After creation, the UI redirects to `/person/[id]`. All field defaults (stage = "Prospect", nextActionType = "follow_up", nextActionDate = tomorrow) are applied by the API route before calling `createPerson()`.
 
 **Endpoint:** `POST {API_BASE}/Contacts`
 
@@ -698,6 +706,8 @@ For `personName`: the COQL response includes the lookup field `Contact_Name` whi
 
 #### `createActivity(personId: string, data: Partial<Activity>): Promise<Activity>`
 
+> **Time handling:** The Quick Log form does not expose a time input. Time is auto-captured server-side at the moment of submission (current CT time). The Zoho provider should set `Activity_Time` to the current time when `data.time` is not provided by the client.
+
 **Endpoint:** `POST {API_BASE}/Activity_Logs`
 
 ```bash
@@ -878,6 +888,192 @@ function mapZohoProfile(profileName: string): UserRole {
 2. Implement Zoho OAuth login where `getUserByUsername` is no longer needed.
 
 For option 1, this method can delegate to the same env-var user store used by the mock provider. The Zoho provider only handles data, not auth.
+
+---
+
+### 4.x New Methods — Added 2026-03-18
+
+These methods were added to the DataService interface to support the inline editing UX and chip-based lead source picker. All Zoho provider implementations must include them.
+
+#### `GET /api/lead-sources` — Lead Source List + Frequency
+
+**API route:** `app/api/lead-sources/route.ts`
+
+Returns the full `LEAD_SOURCES` array (from `lib/constants.ts`) sorted by frequency of use, plus the raw counts map. Used by `LeadSourcePicker` to order chips.
+
+Response shape:
+```json
+{
+  "sources": [{ "key": "cpa_referral", "label": "CPA Referral", "category": "Referral" }, ...],
+  "counts": { "cpa_referral": 5, "linkedin": 3, ... }
+}
+```
+
+Calls `ds.getLeadSourceCounts()` internally. The Zoho provider must implement this method.
+
+---
+
+#### `getLeadSourceCounts(): Promise<Record<string, number>>`
+
+Returns a count of how many people have each lead source value. Used by the `GET /api/lead-sources` route to sort the chip display. Also used when adding a new lead source so the chip immediately appears in the correct frequency position.
+
+**Endpoint:** COQL query
+```bash
+curl -X POST "https://www.zohoapis.com/crm/v6/coql" \
+  -H "Authorization: Zoho-oauthtoken ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "select_query": "SELECT Lead_Source, count(id) FROM Contacts WHERE Lead_Source IS NOT NULL GROUP BY Lead_Source"
+  }'
+```
+
+**Response mapping:**
+```typescript
+async getLeadSourceCounts(): Promise<Record<string, number>> {
+  const result = await zohoFetch("/coql", {
+    method: "POST",
+    body: JSON.stringify({
+      select_query: "SELECT Lead_Source, count(id) FROM Contacts WHERE Lead_Source IS NOT NULL GROUP BY Lead_Source"
+    })
+  });
+  const freq: Record<string, number> = {};
+  for (const row of result.data || []) {
+    const key = toSnakeCase(row.Lead_Source);
+    freq[key] = row["count(id)"] || 0;
+  }
+  return freq;
+}
+```
+
+---
+
+#### Organization Link/Unlink (inline editing)
+
+The frontend now supports inline organization editing on Person Detail. These operations need the existing `updatePerson` PATCH with `organizationId`.
+
+**Link org to person:**
+```bash
+curl -X PUT "https://www.zohoapis.com/crm/v6/Contacts/PERSON_ID" \
+  -H "Authorization: Zoho-oauthtoken ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{ "data": [{ "Account_Name": { "id": "ORG_ID" } }] }'
+```
+
+**Remove org from person** (set to null):
+```bash
+curl -X PUT "https://www.zohoapis.com/crm/v6/Contacts/PERSON_ID" \
+  -H "Authorization: Zoho-oauthtoken ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{ "data": [{ "Account_Name": null }] }'
+```
+
+---
+
+#### Referrer Link/Unlink (inline editing)
+
+Referrer relationships are stored in the `Referrer_Links` junction module.
+
+**API routes used:**
+- `POST /api/persons/[id]/referrer` → calls `addReferrer(prospectId, referrerId)`
+- `DELETE /api/persons/[id]/referrer` → calls `removeReferrer(prospectId, referrerId)`
+
+**Zoho implementation:**
+```typescript
+async addReferrer(prospectId: string, referrerId: string): Promise<void> {
+  await zohoFetch("/Referrer_Links", {
+    method: "POST",
+    body: JSON.stringify({
+      data: [{
+        Prospect: { id: prospectId },
+        Referrer: { id: referrerId },
+      }]
+    })
+  });
+}
+
+async removeReferrer(prospectId: string, referrerId: string): Promise<void> {
+  // Find the junction record first
+  const result = await zohoFetch(
+    `/coql`,
+    { method: "POST", body: JSON.stringify({
+      select_query: `SELECT id FROM Referrer_Links WHERE Prospect.id = '${prospectId}' AND Referrer.id = '${referrerId}' LIMIT 1`
+    })}
+  );
+  const linkId = result.data?.[0]?.id;
+  if (linkId) await zohoFetch(`/Referrer_Links/${linkId}`, { method: "DELETE" });
+}
+```
+
+---
+
+#### Funding Entity — Create/Delete (inline editing)
+
+The frontend now supports creating and removing funding entities inline on Person Detail.
+
+**Create:**
+```bash
+curl -X POST "https://www.zohoapis.com/crm/v6/Funding_Entities" \
+  -H "Authorization: Zoho-oauthtoken ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "data": [{
+      "Name": "Calloway Family Trust",
+      "Entity_Type": "Trust",
+      "Contact_Name": { "id": "PERSON_ID" },
+      "Status": "Active"
+    }]
+  }'
+```
+
+**Delete:**
+```bash
+curl -X DELETE "https://www.zohoapis.com/crm/v6/Funding_Entities/ENTITY_ID" \
+  -H "Authorization: Zoho-oauthtoken ACCESS_TOKEN"
+```
+
+**Important:** Funding entities are 1:1 per person — each entity has a `Contact_Name` lookup. Two prospects can have entities with the same `Name` — they are separate Zoho records with different `id` values. Do not try to share entities between contacts.
+
+---
+
+#### "Prospect Added" Activity Type
+
+When `createPerson()` is called, the frontend automatically creates a "Prospect Added" system activity. The Zoho provider must:
+
+1. Ensure `Prospect Added` exists as a valid picklist value in `Activity_Type` on the `Activity_Logs` module (system-only value — never shown in the UI as a manual option)
+2. Write the activity with:
+   ```typescript
+   {
+     Activity_Type: "Prospect Added",
+     Detail: "Prospect added to pipeline",
+     Activity_Date: todayDate,  // CT date
+     Source: "Manual",
+     Outcome: "Connected",      // Default, not relevant for this type
+     Contact_Name: { id: personId },
+     Logged_By: { id: currentUserId },
+   }
+   ```
+3. The Zoho implementation of `createPerson()` should call `createActivity()` as its last step before returning.
+
+---
+
+#### Lead Source → Zoho Picklist Value Mapping
+
+The chip picker stores and reads lead source values using the keys defined in `lib/constants.ts`. These must map **exactly** to the Zoho `Lead_Source` picklist values.
+
+| Frontend key (`lib/constants.ts`) | Zoho picklist value |
+|---|---|
+| `velocis_network` | `Velocis Network` |
+| `cpa_referral` | `CPA Referral` |
+| `legacy_event` | `Legacy Event` |
+| `linkedin` | `LinkedIn` |
+| `ken_dbj_list` | `Ken - DBJ List` |
+| `ken_event_followup` | `Ken - Event Follow-up` |
+| `tolleson_wm` | `Tolleson WM` |
+| `ma_attorney` | `M&A Attorney` |
+| `cold_outreach` | `Cold Outreach` |
+| `other` | `Other` |
+
+> ⚠️ If any Zoho picklist value changes name, the frontend `LEAD_SOURCES` constant in `lib/constants.ts` must be updated to match. These values are the single source of truth — any mismatch will cause the chip to not select/display correctly.
 
 ---
 

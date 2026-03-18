@@ -19,7 +19,7 @@ interface DateQuickPickProps {
 
 export function DateQuickPick({ value, onChange }: DateQuickPickProps) {
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
+    <div className="flex flex-wrap items-center gap-2">
       {CHIPS.map((chip) => {
         const date = computeDateOffset(chip.offset);
         const isActive = value === date;
@@ -28,7 +28,7 @@ export function DateQuickPick({ value, onChange }: DateQuickPickProps) {
             key={chip.offset}
             type="button"
             onClick={() => onChange(date)}
-            className={`rounded-full px-2.5 py-0.5 text-[10px] font-medium transition-colors ${
+            className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
               isActive
                 ? "bg-gold text-navy"
                 : "bg-muted text-muted-foreground hover:bg-gold/20 hover:text-navy"
@@ -42,7 +42,7 @@ export function DateQuickPick({ value, onChange }: DateQuickPickProps) {
         type="date"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="rounded-md border bg-card px-2 py-0.5 text-xs"
+        className="rounded-md border bg-card px-2.5 py-1.5 text-xs"
       />
     </div>
   );

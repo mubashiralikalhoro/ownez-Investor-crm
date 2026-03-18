@@ -252,4 +252,10 @@ export interface DataService {
   addReferrer(prospectId: string, referrerId: string): Promise<void>;
   addRelatedContact(prospectId: string, contactId: string, role: string): Promise<void>;
   getReferrals(referrerId: string): Promise<PersonWithComputed[]>;
+
+  // Analytics
+  getLeadSourceCounts(): Promise<Record<string, number>>;
+
+  // Testing
+  resetData?(): void;
 }

@@ -1,7 +1,11 @@
 import { test, expect } from "@playwright/test";
-import { loginAs } from "./helpers";
+import { loginAs, resetMockData } from "./helpers";
 
 test.describe("Pipeline View", () => {
+  test.beforeAll(async () => {
+    await resetMockData();
+  });
+
   test.beforeEach(async ({ page }) => {
     await loginAs(page, "chad");
     await page.click("aside >> text=Pipeline");

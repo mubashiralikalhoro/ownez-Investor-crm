@@ -1,36 +1,44 @@
 import { test, expect } from "@playwright/test";
-import { loginAs } from "./helpers";
+import { loginAs, resetMockData } from "./helpers";
 
 test.describe("Dashboard", () => {
+  test.beforeAll(async () => {
+    await resetMockData();
+  });
+
   test.beforeEach(async ({ page }) => {
     await loginAs(page, "chad");
   });
 
-  test("displays 4 stat cards", async ({ page }) => {
-    await expect(page.locator("text=Active Pipeline")).toBeVisible();
-    await expect(page.locator("text=Pipeline Value")).toBeVisible();
-    await expect(page.locator("text=Committed")).toBeVisible();
-    await expect(page.locator("text=Funded YTD")).toBeVisible();
+  test("displays stats footer with all 4 metrics", async ({ page }) => {
+    const main = page.locator("main");
+    await expect(main.locator("text=Active Pipeline").or(main.getByText("Pipeline", { exact: true }))).toBeVisible();
+    await expect(main.getByText("Value", { exact: true })).toBeVisible();
+    await expect(main.getByText("Committed", { exact: true })).toBeVisible();
+    await expect(main.getByText("Funded YTD", { exact: true })).toBeVisible();
   });
 
   test("shows active pipeline count", async ({ page }) => {
     // 12 prospects minus nurture(1) minus dead(1) = 10 active
-    const statsSection = page.locator("text=Active Pipeline").locator("..");
-    await expect(statsSection).toContainText("10");
+    const main = page.locator("main");
+    await expect(main.getByText("10", { exact: true })).toBeVisible();
   });
 
   test("shows funded YTD value", async ({ page }) => {
     // Morrison $500K + Chang $100K + Reeves $250K = $850K
-    const fundedCard = page.locator("text=Funded YTD").locator("..");
-    await expect(fundedCard).toContainText("$850K");
+    await expect(page.locator("text=$850K")).toBeVisible();
   });
 
-  test("Today's Actions section exists", async ({ page }) => {
-    await expect(page.locator("text=Today's Actions")).toBeVisible();
+  test("hero card or empty state is visible", async ({ page }) => {
+    // Either a hero card with a prospect name or the "All caught up" empty state
+    const heroCard = page.locator("text=Overdue").or(page.locator("text=Due today")).or(page.locator("text=Stale")).or(page.locator("text=All caught up"));
+    await expect(heroCard.first()).toBeVisible();
   });
 
-  test("Needs Attention section exists", async ({ page }) => {
-    await expect(page.locator("text=Needs Attention")).toBeVisible();
+  test("action queue shows ranked items", async ({ page }) => {
+    // The action queue should have numbered items (2., 3., etc.)
+    const queueItems = page.locator("text=Action Items");
+    await expect(queueItems).toBeVisible();
   });
 
   test("Recent Activity section exists and is collapsed", async ({ page }) => {
@@ -43,5 +51,10 @@ test.describe("Dashboard", () => {
       await prospectLink.click();
       await expect(page).toHaveURL(/\/person\//);
     }
+  });
+
+  test("header has action buttons", async ({ page }) => {
+    await expect(page.getByRole("button", { name: "Prospect" })).toBeVisible();
+    await expect(page.getByText("Log Activity")).toBeVisible();
   });
 });

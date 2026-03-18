@@ -31,19 +31,19 @@ test.describe("Person Detail — Robert Calloway", () => {
   });
 
   test("shows quick log input", async ({ page }) => {
-    const quickLog = page.locator('input[placeholder*="Quick log"]');
+    const quickLog = page.locator('input[placeholder*="discussed"]');
     await expect(quickLog).toBeVisible();
   });
 
   test("quick log detects activity type from text", async ({ page }) => {
-    const quickLog = page.locator('input[placeholder*="Quick log"]');
+    const quickLog = page.locator('input[placeholder*="discussed"]');
     await quickLog.fill("Called Robert, discussed Q3 returns");
     // Should show "Call" badge
     await expect(page.locator("span", { hasText: "Call" }).first()).toBeVisible();
   });
 
   test("quick log detects attempted outcome", async ({ page }) => {
-    const quickLog = page.locator('input[placeholder*="Quick log"]');
+    const quickLog = page.locator('input[placeholder*="discussed"]');
     await quickLog.fill("Left voicemail, no answer");
     await expect(page.locator("text=Attempted").first()).toBeVisible();
   });
@@ -59,8 +59,11 @@ test.describe("Person Detail — Robert Calloway", () => {
     await expect(page.getByText("Meetings", { exact: true })).toBeVisible();
   });
 
-  test("shows stage progression bar", async ({ page }) => {
-    await expect(page.locator("text=Stage Progression")).toBeVisible();
+  test("shows stage progression dots", async ({ page }) => {
+    // Dot progression is visible with expand hint
+    await expect(page.locator("text=click to change stage")).toBeVisible();
+    // Click to expand — Nurture and Dead buttons appear
+    await page.click("text=click to change stage");
     await expect(page.locator("button", { hasText: "Nurture" })).toBeVisible();
     await expect(page.locator("button", { hasText: "Dead" })).toBeVisible();
   });
@@ -75,11 +78,10 @@ test.describe("Person Detail — Robert Calloway", () => {
     await expect(page.getByText("Mrs. Calloway").first()).toBeVisible();
   });
 
-  test("shows prospect fields section", async ({ page }) => {
-    await expect(page.locator("h3", { hasText: "Prospect Details" })).toBeVisible();
-    await expect(page.locator("text=Investment Target")).toBeVisible();
+  test("shows profile card with key fields", async ({ page }) => {
+    await expect(page.locator("text=Target")).toBeVisible();
     await expect(page.locator("text=Lead Source")).toBeVisible();
-    await expect(page.locator("text=Assigned Rep")).toBeVisible();
+    await expect(page.locator("text=Rep")).toBeVisible();
   });
 
   test("shows background notes (collapsed)", async ({ page }) => {

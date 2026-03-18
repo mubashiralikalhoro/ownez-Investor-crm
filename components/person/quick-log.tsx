@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { detectActivityType, detectOutcome } from "@/lib/smart-detection";
+import { detectActivityType, detectOutcome, hasOutcome } from "@/lib/smart-detection";
 import { ACTIVITY_TYPES, NEXT_ACTION_TYPES } from "@/lib/constants";
 import { getTodayCT } from "@/lib/format";
 import { DateQuickPick } from "@/components/ui/date-quick-pick";
@@ -21,14 +21,14 @@ export function QuickLog({ person }: QuickLogProps) {
   const [showMore, setShowMore] = useState(false);
   const [activityType, setActivityType] = useState<ActivityType>("note");
   const [date, setDate] = useState(getTodayCT());
-  const [time, setTime] = useState("");
   const [outcome, setOutcome] = useState<ActivityOutcome>("connected");
   const [submitting, setSubmitting] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
 
   // Next Action Prompt state
   const [showPrompt, setShowPrompt] = useState(false);
   const [promptActionType, setPromptActionType] = useState(person.nextActionType ?? "follow_up");
-  const [promptDetail, setPromptDetail] = useState(person.nextActionDetail ?? "");
+  const [promptDetail, setPromptDetail] = useState("");
   const [promptDate, setPromptDate] = useState(person.nextActionDate ?? "");
 
   const detectedType = text ? detectActivityType(text) : "note";
@@ -43,7 +43,7 @@ export function QuickLog({ person }: QuickLogProps) {
 
     try {
       const now = new Date();
-      const currentTime = time || now.toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", timeZone: "America/Chicago" });
+      const currentTime = now.toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", timeZone: "America/Chicago" });
 
       await fetch("/api/activities", {
         method: "POST",
@@ -54,7 +54,7 @@ export function QuickLog({ person }: QuickLogProps) {
           source: "manual",
           date: date || getTodayCT(),
           time: currentTime,
-          outcome: displayOutcome,
+          outcome: hasOutcome(displayType) ? displayOutcome : "connected",
           detail: text,
           documentsAttached: [],
           annotation: null,
@@ -65,13 +65,12 @@ export function QuickLog({ person }: QuickLogProps) {
       setText("");
       setShowMore(false);
       setActivityType("note");
-      setTime("");
       setOutcome("connected");
 
-      // Show next action prompt
+      // Show next action prompt — detail starts empty, old value as placeholder
       setShowPrompt(true);
       setPromptActionType(person.nextActionType ?? "follow_up");
-      setPromptDetail(person.nextActionDetail ?? "");
+      setPromptDetail("");
       setPromptDate(person.nextActionDate ?? "");
 
       router.refresh();
@@ -86,12 +85,13 @@ export function QuickLog({ person }: QuickLogProps) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         nextActionType: promptActionType,
-        nextActionDetail: promptDetail,
+        nextActionDetail: promptDetail.trim() || person.nextActionDetail,
         nextActionDate: promptDate,
       }),
     });
     setShowPrompt(false);
-    router.refresh();
+    setShowSuccess(true);
+    setTimeout(() => window.location.reload(), 1500);
   }
 
   async function handleAdvanceStage() {
@@ -105,9 +105,18 @@ export function QuickLog({ person }: QuickLogProps) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ newStage: nextStage }),
         });
-        router.refresh();
+        window.location.reload();
       }
     }
+  }
+
+  if (showSuccess) {
+    return (
+      <div className="rounded-lg border border-healthy-green/30 bg-healthy-green-light px-3 py-3 flex items-center gap-2">
+        <span className="h-2 w-2 rounded-full bg-healthy-green shrink-0" />
+        <p className="text-sm font-medium text-healthy-green">Activity logged</p>
+      </div>
+    );
   }
 
   if (showPrompt) {
@@ -127,8 +136,8 @@ export function QuickLog({ person }: QuickLogProps) {
           <Input
             value={promptDetail}
             onChange={(e) => setPromptDetail(e.target.value)}
-            className="flex-1 text-xs h-8"
-            placeholder="What needs to happen next?"
+            className="flex-1 text-xs h-8 placeholder:text-muted-foreground/40 placeholder:italic"
+            placeholder={person.nextActionDetail || "What needs to happen next?"}
             onKeyDown={(e) => { if (e.key === "Enter") handlePromptConfirm(); }}
             autoFocus
           />
@@ -137,7 +146,7 @@ export function QuickLog({ person }: QuickLogProps) {
         <div className="flex items-center justify-between">
           <button
             onClick={handleAdvanceStage}
-            className="text-[10px] text-gold hover:underline"
+            className="text-xs text-gold hover:underline"
           >
             Advance to next stage?
           </button>
@@ -153,39 +162,42 @@ export function QuickLog({ person }: QuickLogProps) {
   }
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2">
+    <div className="rounded-lg border-2 border-gold/30 bg-gold/5 px-3 py-2 space-y-1.5">
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] font-semibold text-gold uppercase tracking-wider">Log Activity</p>
         {text && (
-          <Badge
-            variant="secondary"
-            className="text-[10px] text-white shrink-0"
-            style={{ backgroundColor: typeConfig?.color }}
-          >
-            {typeConfig?.label}
-          </Badge>
+          <div className="flex items-center gap-1.5">
+            <Badge
+              variant="secondary"
+              className="text-[10px] text-white shrink-0"
+              style={{ backgroundColor: typeConfig?.color }}
+            >
+              {typeConfig?.label}
+            </Badge>
+            {hasOutcome(displayType) && displayOutcome === "attempted" && (
+              <Badge variant="outline" className="text-[10px] text-alert-red border-alert-red/30 shrink-0">
+                Attempted
+              </Badge>
+            )}
+          </div>
         )}
-        {text && displayOutcome === "attempted" && (
-          <Badge variant="outline" className="text-[10px] text-alert-red border-alert-red/30 shrink-0">
-            Attempted
-          </Badge>
-        )}
-        <Input
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="Quick log: Called Robert, discussed..."
-          className="flex-1 text-xs h-9"
-          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSubmit(); }}}
-          disabled={submitting}
-        />
       </div>
+      <Input
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder={`Called ${person.fullName}, discussed...`}
+        className="w-full text-sm h-9 bg-white border-gold/20 focus:border-gold"
+        onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSubmit(); }}}
+        disabled={submitting}
+      />
 
       <div className="flex items-center justify-between">
         <button
           onClick={() => setShowMore(!showMore)}
-          className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-navy"
+          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-navy"
         >
-          {showMore ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
-          {showMore ? "Less" : "+ More options"}
+          {showMore ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          {showMore ? "Less" : "More options"}
         </button>
 
         {text && (
@@ -200,29 +212,17 @@ export function QuickLog({ person }: QuickLogProps) {
       </div>
 
       {showMore && (
-        <div className="space-y-2 rounded-lg border p-3">
-          <div className="flex items-center gap-3">
-            <select
-              value={activityType}
-              onChange={(e) => setActivityType(e.target.value as ActivityType)}
-              className="rounded-md border bg-card px-2 py-1.5 text-xs"
-            >
-              {ACTIVITY_TYPES.filter((t) => !["stage_change", "reassignment"].includes(t.key)).map((t) => (
-                <option key={t.key} value={t.key}>{t.label}</option>
-              ))}
-            </select>
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="rounded-md border bg-card px-2 py-1 text-xs"
-            />
-            <input
-              type="time"
-              value={time}
-              onChange={(e) => setTime(e.target.value)}
-              className="rounded-md border bg-card px-2 py-1 text-xs"
-            />
+        <div className="flex items-center gap-2 flex-wrap">
+          <select
+            value={activityType}
+            onChange={(e) => setActivityType(e.target.value as ActivityType)}
+            className="rounded-md border bg-card px-2 py-1.5 text-xs"
+          >
+            {ACTIVITY_TYPES.filter((t) => !["stage_change", "reassignment"].includes(t.key)).map((t) => (
+              <option key={t.key} value={t.key}>{t.label}</option>
+            ))}
+          </select>
+          {hasOutcome(activityType) && (
             <select
               value={outcome}
               onChange={(e) => setOutcome(e.target.value as ActivityOutcome)}
@@ -231,7 +231,13 @@ export function QuickLog({ person }: QuickLogProps) {
               <option value="connected">Connected</option>
               <option value="attempted">Attempted</option>
             </select>
-          </div>
+          )}
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            className="rounded-md border bg-card px-2 py-1.5 text-xs"
+          />
         </div>
       )}
     </div>

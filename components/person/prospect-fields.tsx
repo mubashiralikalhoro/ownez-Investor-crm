@@ -3,7 +3,9 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Input } from "@/components/ui/input";
+import { Pencil } from "lucide-react";
 import { LEAD_SOURCES, LOST_REASONS } from "@/lib/constants";
+import { LeadSourcePicker } from "@/components/ui/lead-source-picker";
 import { formatCurrency, getTodayCT } from "@/lib/format";
 import type { PersonWithComputed, User } from "@/lib/types";
 
@@ -61,13 +63,14 @@ export function ProspectFields({ person, users, sessionRole }: ProspectFieldsPro
             className="text-xs h-7 flex-1"
             autoFocus
             onBlur={(e) => {
-              const v = type === "number" ? (e.target.value ? Number(e.target.value) : null) : e.target.value;
+              const raw = e.target.value.trim();
+              const v = type === "number" ? (raw ? Number(raw) : null) : (raw || null);
               saveField(field, v);
             }}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
-                const target = e.target as HTMLInputElement;
-                const v = type === "number" ? (target.value ? Number(target.value) : null) : target.value;
+                const raw = (e.target as HTMLInputElement).value.trim();
+                const v = type === "number" ? (raw ? Number(raw) : null) : (raw || null);
                 saveField(field, v);
               }
               if (e.key === "Escape") setEditing(null);
@@ -79,11 +82,14 @@ export function ProspectFields({ person, users, sessionRole }: ProspectFieldsPro
 
     return (
       <div
-        className={`flex items-center gap-2 ${editable ? "cursor-pointer hover:bg-muted/50 -mx-2 px-2 py-0.5 rounded" : ""}`}
+        className={`group flex items-center gap-2 ${editable ? "cursor-pointer hover:bg-muted/50 -mx-2 px-2 py-0.5 rounded" : ""}`}
         onClick={() => editable && setEditing(field)}
       >
         <span className="text-xs text-muted-foreground w-32 shrink-0">{label}</span>
-        <span className="text-xs font-medium tabular-nums">{displayValue}</span>
+        <span className="text-xs font-medium tabular-nums flex-1">{displayValue}</span>
+        {editable && (
+          <Pencil size={10} className="text-muted-foreground/0 group-hover:text-muted-foreground/40 transition-colors shrink-0" />
+        )}
       </div>
     );
   }
@@ -96,6 +102,20 @@ export function ProspectFields({ person, users, sessionRole }: ProspectFieldsPro
     <div>
       <h3 className="mb-3 text-sm font-semibold text-navy">Prospect Details</h3>
       <div className="space-y-1.5">
+        <EditableField
+          label="Phone"
+          field="phone"
+          value={person.phone}
+          type="tel"
+          editable={canEdit}
+        />
+        <EditableField
+          label="Email"
+          field="email"
+          value={person.email}
+          type="email"
+          editable={canEdit}
+        />
         <EditableField
           label="Investment Target"
           field="initialInvestmentTarget"
@@ -118,26 +138,34 @@ export function ProspectFields({ person, users, sessionRole }: ProspectFieldsPro
           editable={canEdit}
         />
 
-        {/* Lead Source dropdown */}
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground w-32 shrink-0">Lead Source</span>
-          {canEdit ? (
-            <select
+        {/* Lead Source */}
+        {editing === "leadSource" && canEdit ? (
+          <div className="rounded-lg border bg-muted/30 p-3 -mx-2 space-y-2">
+            <LeadSourcePicker
               value={person.leadSource ?? ""}
-              onChange={(e) => saveField("leadSource", e.target.value || null)}
-              className="rounded-md border bg-card px-2 py-0.5 text-xs"
+              onChange={(val) => saveField("leadSource", val || null)}
+            />
+            <button
+              onClick={() => setEditing(null)}
+              className="text-xs text-muted-foreground hover:text-navy"
             >
-              <option value="">—</option>
-              {LEAD_SOURCES.map((s) => (
-                <option key={s.key} value={s.key}>{s.label}</option>
-              ))}
-            </select>
-          ) : (
-            <span className="text-xs font-medium">
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <div
+            className={`group flex items-center gap-2 ${canEdit ? "cursor-pointer hover:bg-muted/50 -mx-2 px-2 py-0.5 rounded" : ""}`}
+            onClick={() => canEdit && setEditing("leadSource")}
+          >
+            <span className="text-xs text-muted-foreground w-32 shrink-0">Lead Source</span>
+            <span className="text-xs font-medium flex-1">
               {LEAD_SOURCES.find((s) => s.key === person.leadSource)?.label ?? "—"}
             </span>
-          )}
-        </div>
+            {canEdit && (
+              <Pencil size={10} className="text-muted-foreground/0 group-hover:text-muted-foreground/40 transition-colors shrink-0" />
+            )}
+          </div>
+        )}
 
         {/* Assigned Rep - visible but only admin can edit */}
         <div className="flex items-center gap-2">

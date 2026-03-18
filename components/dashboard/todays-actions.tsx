@@ -17,12 +17,12 @@ export function TodaysActions({ people, needsAttentionCount, nextUpPerson }: Tod
 
   return (
     <div>
-      <h2 className="mb-3 text-sm font-semibold text-navy">Today&apos;s Actions</h2>
+      <h2 className="mb-3 text-lg font-semibold text-navy">Today&apos;s Actions</h2>
 
       {sorted.length === 0 ? (
         <div className="rounded-lg border border-healthy-green/30 bg-healthy-green-light p-6 text-center">
-          <p className="text-sm font-medium text-healthy-green">All caught up.</p>
-          <p className="mt-1 text-xs text-muted-foreground">
+          <p className="text-base font-medium text-healthy-green">All caught up.</p>
+          <p className="mt-1 text-sm text-muted-foreground">
             {needsAttentionCount > 0 ? (
               <Link href="#needs-attention" className="text-gold hover:underline">
                 {needsAttentionCount} prospect{needsAttentionCount > 1 ? "s" : ""} need attention
@@ -36,9 +36,9 @@ export function TodaysActions({ people, needsAttentionCount, nextUpPerson }: Tod
         </div>
       ) : (
         <div className="overflow-hidden rounded-lg border bg-card">
-          <table className="w-full text-sm">
+          <table className="w-full text-base">
             <thead>
-              <tr className="border-b text-left text-xs text-muted-foreground">
+              <tr className="border-b text-left text-sm text-muted-foreground">
                 <th className="px-4 py-2.5 font-medium">Name</th>
                 <th className="px-4 py-2.5 font-medium">Company</th>
                 <th className="px-4 py-2.5 font-medium">Stage</th>
@@ -58,14 +58,14 @@ export function TodaysActions({ people, needsAttentionCount, nextUpPerson }: Tod
                     {person.organizationName ?? "—"}
                   </td>
                   <td className="px-4 py-3">
-                    <Badge variant="secondary" className="text-[10px]">
+                    <Badge variant="secondary" className="text-xs">
                       {person.pipelineStage ? STAGE_LABELS[person.pipelineStage] : "—"}
                     </Badge>
                   </td>
                   <td className="px-4 py-3 text-right tabular-nums">
                     {formatCurrency(person.initialInvestmentTarget)}
                   </td>
-                  <td className="px-4 py-3 text-muted-foreground text-xs">
+                  <td className="px-4 py-3 text-muted-foreground text-sm">
                     {person.nextActionType && (
                       <span className="font-medium text-navy">
                         {NEXT_ACTION_TYPES.find(t => t.key === person.nextActionType)?.label}

@@ -1,21 +1,26 @@
 import type { DataService } from "./types";
 
-let dataServiceInstance: DataService | null = null;
+const globalForData = globalThis as unknown as { dataService: DataService | undefined };
 
 export async function getDataService(): Promise<DataService> {
-  if (dataServiceInstance) return dataServiceInstance;
+  if (globalForData.dataService) return globalForData.dataService;
 
   const provider = process.env.DATA_PROVIDER ?? "mock";
 
   switch (provider) {
     case "mock": {
       const { createMockDataService } = await import("./providers/mock");
-      dataServiceInstance = createMockDataService();
+      globalForData.dataService = createMockDataService();
       break;
     }
     default:
       throw new Error(`Unknown data provider: ${provider}`);
   }
 
-  return dataServiceInstance;
+  return globalForData.dataService!;
+}
+
+/** Clear the cached data service singleton (forces re-creation on next call) */
+export function clearDataService() {
+  globalForData.dataService = undefined;
 }

@@ -4,16 +4,11 @@ import { getDataService } from "@/lib/data";
 import { getSession } from "@/lib/auth";
 import { IdentityBar } from "@/components/person/identity-bar";
 import { NextActionBar } from "@/components/person/next-action-bar";
-import { RecentSnapshot } from "@/components/person/recent-snapshot";
 import { QuickLog } from "@/components/person/quick-log";
 import { ActivityTimeline } from "@/components/person/activity-timeline";
-import { StageBar } from "@/components/person/stage-bar";
-import { OrganizationSection } from "@/components/person/organization-section";
-import { FundingEntitiesPanel } from "@/components/person/funding-entities";
-import { RelatedContacts } from "@/components/person/related-contacts";
-import { ReferrerSection } from "@/components/person/referrer-section";
+import { ProfileCard } from "@/components/person/profile-card";
+import { RelationshipsSection } from "@/components/person/relationships-section";
 import { BackgroundNotes } from "@/components/person/background-notes";
-import { ProspectFields } from "@/components/person/prospect-fields";
 import { Separator } from "@/components/ui/separator";
 
 export default async function PersonDetailPage({
@@ -47,52 +42,48 @@ export default async function PersonDetailPage({
     : [];
 
   return (
-    <div className="max-w-[1100px]">
+    <div className="max-w-[1100px] overflow-x-hidden">
       {/* Back link */}
-      <div className="px-8 pt-6">
+      <div className="px-3 md:px-8 pt-3 md:pt-6">
         <Link href="/" className="text-xs text-muted-foreground hover:text-gold transition-colors">
           &larr; Dashboard
         </Link>
       </div>
 
-      {/* Cockpit Zone — fixed top section */}
-      <div className="sticky top-0 z-10 bg-background border-b px-8 py-5 space-y-4">
+      {/* Cockpit Zone — sticky top: identity, quick log, next action */}
+      <div className="sticky top-0 z-20 bg-background border-b px-3 md:px-8 py-3 md:py-4 space-y-2 md:space-y-3 overflow-hidden">
         <IdentityBar person={person} />
-        <NextActionBar person={person} />
-        <RecentSnapshot activities={activities} />
         <QuickLog person={person} />
+        <NextActionBar person={person} />
       </div>
 
       {/* Detail Zone — scrollable */}
-      <div className="px-8 py-6 space-y-8">
+      <div className="px-3 md:px-8 py-4 md:py-6 space-y-5">
+        {/* Profile Card — stage, org, financials, lead source, rep */}
+        <ProfileCard
+          person={person}
+          users={users}
+          orgMembers={orgMembers}
+          sessionRole={session?.role ?? "rep"}
+        />
+
         {/* Activity Timeline */}
         <ActivityTimeline activities={activities} users={users} />
 
         <Separator />
 
-        {/* Stage Progression */}
-        {person.pipelineStage && (
-          <>
-            <StageBar currentStage={person.pipelineStage} personId={person.id} />
-            <Separator />
-          </>
-        )}
-
-        {/* Two-column layout for details */}
-        <div className="grid grid-cols-2 gap-8">
-          <div className="space-y-6">
-            <OrganizationSection person={person} orgMembers={orgMembers} />
-            <FundingEntitiesPanel entities={entities} person={person} />
-            <RelatedContacts contacts={relatedContacts} />
-          </div>
-          <div className="space-y-6">
-            <ReferrerSection referrer={referrer} referrals={referrals} />
-            <ProspectFields person={person} users={users} sessionRole={session?.role ?? "rep"} />
-          </div>
-        </div>
+        {/* Relationships — collapsible: referrer, funding entities, related contacts */}
+        <RelationshipsSection
+          person={person}
+          entities={entities}
+          relatedContacts={relatedContacts}
+          referrer={referrer}
+          referrals={referrals}
+        />
 
         <Separator />
 
+        {/* Background Notes */}
         <BackgroundNotes personId={person.id} notes={person.notes} />
       </div>
     </div>

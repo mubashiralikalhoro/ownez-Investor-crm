@@ -14,13 +14,13 @@ export function StatsBar({ stats }: { stats: DashboardStats }) {
     <div className="grid grid-cols-4 gap-4">
       {cards.map((card) => (
         <Card key={card.label} className="p-5">
-          <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
             {card.label}
           </p>
-          <p className="mt-1 text-2xl font-semibold tabular-nums tracking-tight text-navy">
+          <p className="mt-1 text-3xl font-semibold tabular-nums tracking-tight text-navy">
             {card.value}
           </p>
-          <p className="mt-0.5 text-xs text-muted-foreground">{card.subtitle}</p>
+          <p className="mt-0.5 text-sm text-muted-foreground">{card.subtitle}</p>
         </Card>
       ))}
     </div>

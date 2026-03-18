@@ -25,11 +25,11 @@ export function RecentActivity({ activities, users }: RecentActivityProps) {
     <div>
       <button
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-2 text-sm font-semibold text-navy mb-3 hover:text-gold transition-colors"
+        className="flex items-center gap-2 text-lg font-semibold text-navy mb-3 hover:text-gold transition-colors"
       >
         {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
         Recent Activity
-        <span className="text-xs font-normal text-muted-foreground">({activities.length})</span>
+        <span className="text-sm font-normal text-muted-foreground">({activities.length})</span>
       </button>
 
       {expanded && (
@@ -38,7 +38,7 @@ export function RecentActivity({ activities, users }: RecentActivityProps) {
             <select
               value={repFilter}
               onChange={(e) => setRepFilter(e.target.value)}
-              className="rounded-md border bg-card px-2 py-1 text-xs"
+              className="rounded-md border bg-card px-2 py-1 text-sm"
             >
               <option value="all">All reps</option>
               {users.map((u) => (
@@ -49,7 +49,7 @@ export function RecentActivity({ activities, users }: RecentActivityProps) {
 
           <div className="overflow-hidden rounded-lg border bg-card">
             {filtered.length === 0 ? (
-              <p className="p-6 text-center text-sm text-muted-foreground">No recent activity</p>
+              <p className="p-6 text-center text-base text-muted-foreground">No recent activity</p>
             ) : (
               <div className="divide-y">
                 {filtered.map((activity) => {
@@ -58,43 +58,43 @@ export function RecentActivity({ activities, users }: RecentActivityProps) {
                   const isAuto = activity.source !== "manual";
 
                   return (
-                    <div key={activity.id} className="flex items-start gap-3 px-4 py-3">
+                    <div key={activity.id} className="flex items-start gap-3 px-3 md:px-4 py-3">
                       <div
-                        className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-white text-[10px]"
+                        className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-white text-xs"
                         style={{ backgroundColor: typeConfig?.color ?? "#6b7280" }}
                       >
                         {typeConfig?.label?.[0] ?? "?"}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-muted-foreground">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-xs md:text-sm text-muted-foreground">
                             {formatDate(activity.date)} {formatTime(activity.time)}
                           </span>
                           <Link
                             href={`/person/${activity.personId}`}
-                            className="text-xs font-medium text-navy hover:text-gold transition-colors"
+                            className="text-sm font-medium text-navy hover:text-gold transition-colors"
                           >
                             {activity.personName}
                           </Link>
-                          <Badge variant="secondary" className="text-[10px]">
+                          <Badge variant="secondary" className="text-[10px] md:text-xs">
                             {typeConfig?.label ?? activity.activityType}
                           </Badge>
                           {activity.outcome === "attempted" && (
-                            <Badge variant="outline" className="text-[10px] text-alert-red border-alert-red/30">
+                            <Badge variant="outline" className="text-[10px] md:text-xs text-alert-red border-alert-red/30">
                               Attempted
                             </Badge>
                           )}
                           {isAuto && (
-                            <Badge variant="outline" className="text-[10px] text-gold border-gold/30">
-                              <Zap size={8} className="mr-0.5" />AUTO
+                            <Badge variant="outline" className="text-[10px] md:text-xs text-gold border-gold/30">
+                              <Zap size={10} className="mr-0.5" />AUTO
                             </Badge>
                           )}
                         </div>
-                        <p className="mt-0.5 text-xs text-muted-foreground truncate">
+                        <p className="mt-0.5 text-xs md:text-sm text-muted-foreground line-clamp-2 md:truncate">
                           {activity.detail}
                         </p>
                         {logger && (
-                          <p className="mt-0.5 text-[10px] text-muted-foreground/60">
+                          <p className="mt-0.5 text-xs text-muted-foreground/60">
                             {logger.fullName}
                           </p>
                         )}

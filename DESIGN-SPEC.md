@@ -1,8 +1,8 @@
 # OwnEZ Capital — HNW Investor CRM
 ## Design Specification
 
-**Version:** 1.0
-**Date:** 2026-03-17
+**Version:** 1.1
+**Date:** 2026-03-18
 **Author:** Eric Gewirtzman + Claude
 **Status:** Draft — pending review
 
@@ -173,7 +173,17 @@ Follow Up, Schedule Meeting, Send Document, Request Info, Make Introduction, Int
 
 Velocis Network, CPA Referral, Legacy Event, LinkedIn, Ken — DBJ List, Ken — Event Follow-up, Tolleson WM, M&A Attorney, Cold Outreach, Other
 
-Configurable via admin panel.
+**UI:** Visual chip picker (not a dropdown). Chips are categorized for legibility:
+- **Referral:** CPA Referral, Velocis Network, Tolleson WM, M&A Attorney
+- **Network:** Ken — DBJ List, Ken — Event Follow-up
+- **Event:** Legacy Event
+- **Direct:** LinkedIn, Cold Outreach, Other
+
+Top row shows the 4 most frequently used sources (computed live via `getLeadSourceCounts()`). "More" expands to show all remaining sources plus an "+ Add new" option that creates a new lead source inline (no free-text field — preserves Zoho picklist integrity).
+
+**Data integrity:** All chip values map 1:1 to Zoho picklist values. No free-text input allowed — new sources must be added via "+ Add new" which writes to `LEAD_SOURCES` constant (admin panel manages this in future; for V1 it edits the constant directly).
+
+Configurable via admin panel (planned).
 
 ### 4.3 Activity Types
 
@@ -190,6 +200,9 @@ Configurable via admin panel.
 | Document Sent | Yes | No |
 | Document Received | Yes | No |
 | Reassignment | Auto on rep change | N/A |
+| Prospect Added | Auto on prospect creation | N/A |
+
+"Prospect Added" is a system-generated activity automatically created when a new prospect is saved (`createPerson()` in the data service). It timestamps the start of the relationship and ensures the timeline is never empty. It is never manually creatable.
 
 Configurable via admin panel.
 
@@ -258,6 +271,21 @@ Only Admins (Eric, Efri) can change the Assigned Rep on a prospect. This is inte
 - Remove Collaborators
 - Delete or modify any activity history
 
+### 5.8 Auto-Created "Prospect Added" Activity
+
+When a new prospect is created (via `POST /api/persons` → `ds.createPerson()`), the system automatically creates an Activity Log entry:
+- **Type:** Prospect Added
+- **Detail:** "Prospect added to pipeline"
+- **Date:** today
+- **Logged By:** current user
+- **Source:** Manual
+
+This guarantees every prospect has at least one activity from day one. It means:
+1. The timeline is never empty
+2. "Days Since Last Touch" starts from creation, not null
+3. The post-creation "What's Next?" prompt has context without being fed stale data
+4. Next Action prompt always makes sense (there's always a preceding event to reference)
+
 ### 5.7 Zoho-Side Automations (IT Checklist)
 
 These run in Zoho, not in the frontend:
@@ -284,39 +312,64 @@ These run in Zoho, not in the frontend:
 
 ### 6.2 Chad's Daily Dashboard (`/`)
 
+> **Implemented design:** Cockpit redesign (2026-03-17). See `docs/superpowers/specs/2026-03-17-dashboard-cockpit-redesign.md` for full rationale.
+
 **Last Viewed Bar (persistent, all screens):**
 Compact bar at the top of every screen: `Last: Robert Calloway · Active Engagement · 📞 Quick log...`
-Shows the most recently viewed prospect. Tapping the Quick Log area focuses the text field — Chad can log an activity without navigating back to the prospect's detail page. Tapping the name opens Person Detail. On mobile, this bar is especially critical — it eliminates the "find the prospect I just called" step. Resets when Chad views a different prospect.
+Shows the most recently viewed prospect. Tapping the Quick Log area focuses the text field — Chad can log an activity without navigating back to the prospect's detail page. Tapping the name opens Person Detail. On mobile, this bar is especially critical — it eliminates the "find the prospect I just called" step. Resets when Chad views a different prospect. (Implemented separately at layout level — not part of Dashboard component.)
 
-**Row 0: Today's Momentum** (single line, below nav, above stats):
+**Header Bar:**
+- Page title "Dashboard" on the left
+- Two action buttons on the right:
+  - **"+ Prospect"** — outlined/secondary pill button, opens Create Prospect slide-out sheet
+  - **"Log Activity"** — gold pill button (primary CTA), opens Quick Log slide-out sheet with prospect search/autocomplete as first field. Once a prospect is selected, their activity timeline (reverse-chronological, with relative timestamps matching Person Detail style) appears in the lower half of the sheet — so Chad has full context before logging. Timestamps shown as "Today at 2:30 PM", "Yesterday at 10:15 AM", etc.
+- On small screens, button labels condense to compact text
+- Keyboard shortcuts: `N` for new prospect, `L` for quick log
+
+**Hero Card (Zone 1 — #1 priority):**
+The single most important action Chad needs to take right now, determined by priority logic (see below).
+- **Name**: large, semibold, navy — most prominent element
+- **Context line**: company, stage badge, dollar amount — secondary, muted
+- **Next action detail**: displayed as a clear instruction
+- **Urgency tag**: bottom-left — red "Overdue Xd" pill or neutral "Due today" pill
+- **"Open →"**: bottom-right, links to `/person/[id]`
+- **"New" badge**: gold "New" pill if prospect was created by someone other than assigned rep within 24h and rep hasn't logged activity yet
+- **Empty state**: calm green — "All caught up. Next action is [Name] on [date]."
+
+**Action Items Queue (Zone 2 — everything else, ranked):**
+Unified list replacing the former "Today's Actions" and "Needs Attention" sections. Compact ranked rows — no table headers.
+
+Each row shows:
+- Rank number (left anchor)
+- Name — semibold, navy, clickable → `/person/[id]`
+- Stage badge (small)
+- Dollar amount (tabular nums)
+- Urgency tag — red "Overdue Xd" or neutral "Due today"
+- Next action detail — muted, truncated
+- "New" badge if applicable
+
+**Overflow:** shows first 8 rows. "Show N more" link expands full list.
+
+**Priority logic (deduplicated by person ID):**
+1. Overdue items first — most overdue first, dollar value as tiebreaker
+2. Stale-but-not-overdue — days idle descending
+3. Due today — dollar value descending
+4. Nurture re-engage — prospects in Nurture where Re-engage Date = today
+
+**What was dropped vs. original spec:**
+- "Today's Momentum" bar (felt like surveillance) — removed entirely
+- "Today's Actions" / "Needs Attention" as separate sections — merged into unified Action Items queue
+- Today/Tomorrow/This Week date toggle — cockpit shows overdue + today only; upcoming days accessible via Pipeline view
+- Collaborating section — cockpit is owner-only action list; collaborating prospects remain in Pipeline view
+
+**Stats Footer (Zone 3):**
+Single horizontal bar at the bottom — 4-column grid, label stacked above value:
 ```
-Today: 8 activities logged · 2 stages advanced · 1 new prospect added
+Pipeline: 10  │  Value: $3.4M  │  Committed: $1.1M  │  Funded YTD: $850K
 ```
-Auto-updating, resets daily at midnight CT. Factual mirror of effort — no gamification, no judgment. The difference between a system that takes from Chad (data entry) and one that sees him.
+- Stats definitions unchanged: Active Pipeline Count, Pipeline Value, Committed (Soft Commit → KYC stages), Funded YTD (from Funded Investment records)
 
-**Row 1: Quick Stats Bar** — 4 cards:
-1. Active Pipeline Count — prospects not in Nurture/Dead/Funded
-2. Pipeline Value ($) — sum of Initial Investment Target across active pipeline
-3. Committed ($) — sum of Committed Amount where stage is Soft Commit, Commitment Processing, or KYC (excludes Funded — those are counted in Funded YTD)
-4. Funded YTD ($) — sum from Funded Investment records
-
-**Row 2 Left (60%): Today's Actions**
-- Prospects where Next Action Date = today (or selected range), sorted by dollar value descending
-- Also includes Nurture prospects where Re-engage Date falls within the selected range
-- **Date toggle:** **Today | Tomorrow | This Week** — default is Today. Lets Chad prep for upcoming days without leaving the dashboard.
-- Columns: Name, Company, Stage, Initial Investment, Next Action Type + Detail
-- **"New" badge:** Prospects created by someone other than the Assigned Rep show a gold "New" badge for the first 24 hours or until the Assigned Rep logs their first activity on the record (whichever comes first). This is the handoff signal — when Ken or Eric creates a prospect and assigns it to Chad, it's immediately visible as something new that needs his attention.
-- Click row → `/person/[id]`
-- **Empty state (all actions complete):** "All caught up." followed by directional context: "[N] prospects need attention" (links to Needs Attention if any exist), or if Needs Attention is also empty: "Pipeline healthy — next action is [Name] on [date]." The system always answers "what should I do now?"
-
-**Row 2 Right (40%): Needs Attention**
-- Stale Flag = true OR Next Action Date < today (overdue)
-- Red indicator dot on each record
-- Visually distinct (red-tinted border)
-- Columns: Name, Stage, Days Idle, Next Action, Next Action Date
-- Sorted by severity (most overdue first)
-
-**Row 3: Recent Activity (collapsible, collapsed by default)**
+**Recent Activity (collapsible, collapsed by default):**
 - Reverse-chronological feed of all activities across all prospects, last 7 days
 - Columns: Date/Time, Person (linked), Activity Type, Outcome, Detail (truncated), Logged By
 - Filterable by rep (Admin sees all, rep defaults to own)
@@ -353,105 +406,136 @@ Chad can pin up to 10 prospects to the top of Pipeline View (star icon on each r
 
 Two-zone layout: a fixed **Cockpit** (always visible, never scrolls off) and a scrollable **Detail Zone** below it. Chad lives in the cockpit — it contains everything he needs for a call. The detail zone is the filing cabinet for occasional reference and editing.
 
-#### Cockpit (Fixed Top Zone)
+#### Cockpit (Fixed Top Zone) — order of sections
 
 **6.4.1 Identity Bar**
-Name, Organization (linked), Stage badge (color-coded), Investment Target, Stale indicator (red dot if stale).
+Name (large, semibold), Organization (linked, muted), Stage badge (color-coded), Investment Target, Stale indicator (red dot if stale).
+
+**Phone and email are prominently shown in the Identity Bar** — not buried in a scrollable profile section. Chad needs this information to act immediately when he opens a prospect. Format: phone number with click-to-call icon, email address with click-to-email icon.
 
 **Click-to-call (📞):** Next to phone number. With Zoho provider: triggers Zoho PhoneBridge API to place the call (see Section 13 Phase 3). With mock provider: opens `tel:` link (native phone dialer on mobile, system default on desktop). Both create a Call activity entry.
 
 **Click-to-email (✉️):** Next to email. Opens `mailto:` link. User manually logs the activity or it's captured via O365 sync (Zoho provider).
 
-**6.4.2 Next Action Bar**
-Next Action Type + Detail + Date — editable inline, always visible. This is Chad's primary "what am I supposed to do?" signal. Date input uses quick-pick chips (see Section 6.9).
+**Inline editing:** Phone and email are editable inline — tap the field → edit → save. No separate edit page.
 
-**6.4.3 Recent Snapshot**
-Last 3 activities — compact format: type icon + date + first line of detail, truncated. Not the full timeline — a glance. Purpose: "Oh right, I sent him the deck on the 12th." Gives Chad instant context before a call without scrolling.
-
-**6.4.4 Quick Log**
-Always visible at the bottom of the cockpit. Single text input, type and hit Enter:
+**6.4.2 Quick Log** *(primary action zone — moved up, directly after Identity)*
+Prominent area with gold border and "LOG ACTIVITY" label. Single text input, type and hit Enter:
 
 ```
-💬 Quick log: Called Robert, discussed returns... [↵ Enter]
+💬 Called [Name], discussed... [↵ Enter]
 ```
 
-- **Smart prefix detection:** Activity type auto-detected from what Chad types:
+Placeholder uses the person's name so it feels contextual, not generic.
+
+- **Smart prefix detection** (`lib/smart-detection.ts`) — activity type auto-detected from first word of text:
   - `Called...` / `Spoke with...` → Call
   - `Emailed...` / `Sent email...` → Email
   - `Met with...` / `Meeting...` → Meeting
   - `Texted...` → Text Message
-  - `LinkedIn...` / `DM'd...` → LinkedIn Message
-  - `Sent deck...` / `Sent PPM...` → Document Sent
-  - `Received docs...` → Document Received
+  - `LinkedIn...` → LinkedIn Message
+  - `Sent deck...` / `Sent doc...` → Document Sent
   - Anything else → Note (default)
-  - Type badge updates in real-time as Chad types. One tap to override if detection is wrong.
-- **Smart outcome detection:** Auto-sets Outcome to "Attempted" if text contains "voicemail," "no answer," "didn't pick up," "left message," or "no response." Connected stays default for everything else.
-- Date defaults to now
-- "+ More options" expands full form: Activity Type, Date, Time, Outcome, Detail, Attachments
-- After submit: entry appears at top of Recent Snapshot, Days Since Last Touch resets
+  - Type badge updates in real-time. One tap to override if wrong.
+- **Smart outcome detection:** Auto-sets Outcome to "Attempted" if text contains "voicemail," "no answer," or "no response." Connected is default.
+- Date defaults to today (auto-captured — time input not shown in quick log)
+- **"More options"** expands 3 fields only: Activity Type (override), Outcome (Connected/Attempted — only shown for outreach types: Call, Email, Text, LinkedIn), Date. Time is always auto-captured. Outcome toggle is hidden for Note, Meeting, Document types.
+- After submit: Days Since Last Touch resets, Next Action prompt appears
 
 **Post-activity flow (continuous, no navigation):**
 
 After Quick Log submit, a compact inline prompt replaces the Quick Log area:
 
 ```
-Next action? [Follow Up ▾] [Send Q3 deck     ] [Tomorrow ▾]  [✓ Confirm]
+Next action? [Follow Up ▾] [                    ] [Tomorrow ▾]  [✓ Confirm]
                                           [↑ Advance to Active Engagement?]
 ```
 
-1. **Next Action prompt:** Pre-filled with current values. Edit or hit Enter to keep. Not skippable — this prevents CRM decay.
-2. **Advance Stage shortcut:** Below the Next Action fields, a link: "Advance to [Next Stage]?" One tap → stage advances, prompt updates to show post-stage-change fields. The entire post-activity workflow — log, update next action, advance stage — happens in one continuous flow.
-3. After confirming, Quick Log resets and is ready for the next entry.
+1. **Next Action prompt:** Detail field starts *empty* with the old value as gray placeholder text (not pre-filled as editable text). Cursor begins at the start of the field. If user confirms without typing, the old value is preserved as-is. Not skippable.
+2. **Advance Stage shortcut:** "Advance to [Next Stage]?" — styled as a clearly clickable gold underline link, `text-sm` (not tiny). One tap → stage advances.
+3. After confirming, a green "Activity logged" success banner shows for 1.5 seconds, then the page reloads to reflect the new state (updated timeline, updated next action, updated stage if changed).
+4. **Post-confirm state summary:** After user hits Confirm, a brief confirmation view shows the updated prospect state: stage, next action, days since last touch. Gives visual reassurance that the update worked.
+
+**6.4.3 Next Action Bar** *(after Quick Log)*
+Displays current Next Action Type + Detail + Date. When overdue or stale, a red urgency banner appears *above* the gold Next Action card. Editable via a separate edit mode component (EditNextAction) that uses a muted background container so white inputs contrast clearly. Date input uses quick-pick chips (see Section 6.9). "Advance to next stage?" shown as text-xs link.
+
+*Note: "Recent Snapshot" (last 3 activities) was removed — it duplicated the timeline and added visual clutter. The full timeline is immediately below the cockpit.*
 
 #### Detail Zone (Scrollable Below Cockpit)
 
 **6.4.5 Activity Timeline**
-Full reverse-chronological list of all Activity Log entries.
+Full reverse-chronological list of all Activity Log entries. Vertical 2px timeline line connects all activity dots.
 
-**Entry anatomy:**
-- Type icon (color-coded: blue=email, green=call, purple=meeting, amber=note, gray=stage change)
-- Outcome badge (small "Attempted" tag on non-connected activities — Connected doesn't show a badge since it's the default)
-- Date and time
-- Who logged it (important with multiple contributors)
-- Detail text
-- Attached documents (clickable)
-- Auto-synced entries show ⚡AUTO badge + "Add notes" annotation prompt
+**Entry anatomy (3 layers):**
+1. Activity type + date (bold)
+2. Detail text
+3. Metadata: who logged it, outcome (if Attempted), source (if auto), documents
 
-**Stage changes** render as timeline dividers, not cards:
+Colored dot communicates type — no badges on entries.
+
+**Stage changes** render as small inline markers on the timeline line (not full-width dividers):
 ```
-─── ➡️ Pitch → Active Engagement · Feb 5, 2026 ───
+─── Pitch → Active Engagement · Feb 5, 2026 ───
 ```
 
-**Reassignments** also render as timeline dividers:
+**Reassignments** render as small inline markers:
 ```
-─── 🔄 Reassigned: Chad Cormier → New Rep · Mar 15, 2026 ───
+─── Reassigned: Chad → New Rep · Mar 15, 2026 ───
 ```
 
-**Filter pills above timeline:**
+Stage changes and reassignments always show regardless of active filter.
+
+**Filter pills above timeline (5 pills, reduced from 8):**
 ```
-[All] [Calls] [Emails] [Meetings] [Notes] [Docs] [Stage Changes] [Auto ⚡]
+[All] [Calls] [Emails] [Meetings] [Notes]
 ```
+
+**Documents:** Shown inline as paperclip icon + "N files" count. Click to expand document list. Document names are clickable — Zoho provider returns attachment URLs from Zoho attachment API. Mock provider shows file names without URLs.
 
 **6.4.6 Stage Progression Bar**
-Visual 9-step horizontal bar, current stage highlighted. Click a stage → confirmation dialog → auto-logs Stage Change activity → fires post-stage-change prompt. Nurture and Dead shown as separate actions (not in the bar).
+Visual 9-step pill selector, current stage highlighted in gold. Each stage pill is equal width — symmetric layout, no wrapping grid (which creates misaligned rows). Scrollable horizontally on mobile. Click a stage → confirmation dialog → auto-logs Stage Change activity → fires post-stage-change prompt. Nurture and Dead shown as separate actions (not in the bar).
+
+**Design rule:** All 9 active stage pills must be visually identical except for the active highlight. Equal-width, same height, same border-radius. The current stage gets gold background + navy text; all others are muted outline pills.
 
 **6.4.7 Organization Section**
-Linked Organization (if any). Autocomplete-or-create. Shows other prospects in the same org.
+Linked Organization (if any). Fully editable inline:
+- If no org linked: shows search input with autocomplete-or-create. Pressing Enter on a typed name creates a new organization instantly.
+- If org is linked: shows org name with an "×" remove link. Remove link shows the org name ("Remove [Org Name]") so Chad knows what he's unlinking.
+- Shows other prospects in the same org for context.
 
 **6.4.8 Funding Entities Panel**
-List of linked entities (name, type, status). Add button uses autocomplete-or-create. Nudge message at Commitment Processing / KYC if empty. Not required until Funded transition.
+List of linked entities (name, type, status). Fully editable inline:
+- Add button opens inline form (Entity Name, Entity Type) — no modal.
+- Each entity shows name + remove link.
+- Funding entities are 1:1 per person — two different prospects may have entities with the same name (they are separate records, not shared). The Zoho module stores `Person` as a lookup field, making them distinct records.
+- Nudge message at Commitment Processing / KYC if empty. Not required until Funded transition.
 
 **6.4.9 Related Contacts Panel**
 List of related people (name, role, company, phone/email). Add uses autocomplete-or-create from the unified People pool. Same person can appear as Related Contact on multiple prospects.
 
 **6.4.10 Referrer**
-Single field showing who referred this prospect. Autocomplete-or-create from People pool. Shows referrer's other referrals for context.
+Single field showing who referred this prospect. Fully editable inline:
+- If no referrer: shows people search input (autocomplete from all People in the system). Selecting a person links them as referrer — if they don't exist yet, "Create new contact" option adds them.
+- If referrer linked: shows referrer name with a remove link.
+- Shows referrer's other referrals for context.
+- Same person can be both a Referrer and a Prospect (unified People model).
 
 **6.4.11 Background Notes**
 Collapsible section, visually de-emphasized. For static context only: accreditation details, personal interests, family situation, preferences. Placeholder text: *"Background context — use Quick Log for activities."* Intentionally positioned and styled to prevent misuse as an activity log substitute.
 
 **6.4.12 Prospect Fields (Editable)**
-All remaining prospect fields available for inline editing: Investment Target, Growth Target, Committed Amount, Lead Source, Collaborators, Lost/Dead Reason. Assigned Rep is visible but only editable by Admins (see Section 5.6).
+All prospect fields available for inline editing. Fields editable directly on Person Detail:
+- **Phone** — inline edit, tap to edit (also shown in Identity Bar)
+- **Email** — inline edit, tap to edit (also shown in Identity Bar)
+- **Investment Target** — inline currency edit
+- **Growth Target** — inline currency edit
+- **Committed Amount** — inline currency edit
+- **Lead Source** — chip picker (see Section 4.2)
+- **Organization** — see Section 6.4.7
+- **Referrer** — see Section 6.4.10
+- **Funding Entities** — see Section 6.4.8
+
+Assigned Rep is visible but only editable by Admins (see Section 5.6). Collaborators and Lost/Dead Reason are visible but editing is lower priority (may require separate form).
 
 ### 6.5 Leadership Dashboard (`/leadership`)
 
@@ -476,6 +560,8 @@ Stale Flag = true OR overdue. Investor name, Stage, Days Idle, Next Action. Gree
 
 Global search and browse for all people in the system — prospects, referrers, related contacts, funded investors.
 
+**Back to Dashboard link** at top of page — "← Dashboard" link returns to `/`.
+
 **Search bar** at top — fuzzy search by name, company, email, phone.
 
 **Results** show: Name, Roles (badges), Organization, Contact Type/Company (if external contact), Stage (if prospect). Click → `/person/[id]`.
@@ -486,7 +572,28 @@ On mobile, this is the "Search" tab in the bottom navigation. Opens as a full-sc
 
 ### 6.7 Create Prospect Flow
 
-**Entry points:** Gold "+" button on Dashboard (top-right of Row 1) and Pipeline View (top-right of filter bar). On mobile: floating action button (bottom-right). Visible only to users with "Create new prospect" permission.
+**Entry points:**
+- Dashboard header "**+ Prospect**" button → opens slide-out sheet (not a separate page)
+- Pipeline View (top-right of filter bar)
+- Keyboard shortcut `N` from Dashboard or Pipeline View
+
+Visible only to users with "Create new prospect" permission.
+
+**Implementation:** Slide-out sheet (`Sheet` component from shadcn/ui), not a separate route. Sheet opens from the right side of the screen.
+
+**API:** `POST /api/persons` → `ds.createPerson()` — goes through data service layer.
+
+**After creation:** A success screen appears within the sheet (does not auto-navigate). The success screen shows:
+- "Prospect created!" confirmation
+- Two clear options:
+  1. **"Back to Dashboard"** — closes sheet, stays on dashboard
+  2. **"Open Profile →"** — navigates to the new person's detail page
+
+This gives Chad control: if he has more prospects to add, he stays on the dashboard; if he wants to flesh out the profile immediately, he jumps to it.
+
+**Auto-created activity:** On creation, `ds.createPerson()` automatically logs a "Prospect Added" activity (see Section 5.8). This means the timeline is never empty and next action context is immediately available.
+
+**Lead Source field:** Uses the chip picker UI (see Section 4.2) — visual chips, not a dropdown.
 
 **Minimum viable form (one screen, no tabs):**
 
@@ -505,7 +612,7 @@ Pipeline Stage auto-sets to "Prospect." All other fields (Organization, Investme
 
 **Autocomplete-or-create fires on Full Name** — if a matching Person already exists, the system shows the match with a badge: "Already exists as [Referrer/Contact]" → selecting adds the Prospect role. This prevents duplicates at the point of entry.
 
-**After creation:** Redirects to the new Person Detail page where Chad can add more context. If the creator is not the Assigned Rep (e.g., Ken creates and assigns to Chad), the "New" badge appears on Chad's dashboard immediately.
+If the creator is not the Assigned Rep (e.g., Ken creates and assigns to Chad), the "New" badge appears on Chad's dashboard immediately.
 
 ### 6.8 Admin Panel (`/admin`)
 
@@ -675,24 +782,33 @@ Two workflows are primary on mobile:
 - Type note (smart prefix detects activity type) → Enter
 - Confirm/update Next Action (date quick-pick chips for thumb-friendly selection) → Enter
 - Done — 2 taps + 2 Enters, no searching required
-- **Alternate path** if Last Viewed isn't the right prospect: Dashboard → tap prospect (or Search tab → find prospect) → Quick Log
+- **Alternate path** if Last Viewed isn't the right prospect: Dashboard → tap prospect (or People tab → find prospect) → Quick Log
 
 **2. Daily Cockpit** — Morning briefing on the go:
-- Today's Momentum line — quick sense of progress
-- Today's Actions (with Today/Tomorrow/This Week toggle) — who to call, in order
-- Needs Attention — anything on fire
-- Tap prospect → Cockpit zone shows context + Quick Log, no scrolling needed to start working
+- Hero card — #1 priority prospect
+- Action Items queue — who to call, in order
+- Tap prospect → Person Detail: Quick Log is the first visible action zone
 
 ### 10.2 Mobile Layout
 
 | Desktop | Mobile |
 |---|---|
-| Sidebar nav | Bottom tab bar: Dashboard, Search |
+| Sidebar nav (180px left) | Bottom tab bar: Dashboard, Pipeline, People |
+| Sidebar hidden | Main content full-width (no left margin) |
 | Last Viewed bar (top) | Last Viewed bar (top, same behavior) |
 | Pipeline table (10 columns) | Card list (name, stage, next action, stale dot, pin star) |
-| Person Detail: cockpit + detail zone | Cockpit zone fills viewport, detail zone scrolls below. Quick Log pinned to bottom of cockpit. |
+| Person Detail: 2-column cockpit grid | Single column on mobile |
+| Person Detail: cockpit + detail zone | Cockpit zone fills viewport, detail zone scrolls below |
+| Dashboard header buttons: full text | Compact text on small screens |
+| Dashboard action queue: single-row | Two-line layout on mobile (name+stage on line 1, urgency+detail on line 2) |
+| Stats bar: horizontal | 4-column grid, label stacked above value |
 | Date picker | Quick-pick chips (large tap targets) + calendar fallback |
-| Full activity form | Quick log always visible, full form behind "more" |
+| Full activity form | Quick log always visible, "More options" expands 3 fields |
+| `px-8` page padding | `px-3 md:px-8` responsive padding on all pages |
+
+**Global CSS:** Horizontal scroll disabled (`overflow-x: hidden` on body). All form inputs (input, select, textarea) forced to white background via `!important`. `--ring` CSS variable overridden to navy for form focus rings.
+
+**Bottom tab bar:** Appears only on mobile (`md:hidden`). Three tabs: Dashboard (`/`), Pipeline (`/pipeline`), People (`/people`). Includes bottom padding on main content to prevent content hiding behind tab bar.
 
 ### 10.3 Not Mobile-Optimized
 
@@ -734,6 +850,33 @@ Two workflows are primary on mobile:
 - One-click merge: select canonical name, all linked records update
 - Rename: global update cascades everywhere
 - Merge history logged for audit
+
+---
+
+## 11.5 Smart Activity Detection (`lib/smart-detection.ts`)
+
+Auto-detection reduces friction in Quick Log — Chad types naturally and the system infers type and outcome.
+
+### Activity Type Detection (from first word/phrase of log text)
+
+| Text starts with | Detected Type |
+|---|---|
+| "Called...", "Spoke with..." | Call |
+| "Emailed...", "Sent email..." | Email |
+| "Met with...", "Meeting..." | Meeting |
+| "Texted..." | Text Message |
+| "LinkedIn..." | LinkedIn Message |
+| "Sent deck...", "Sent doc..." | Document Sent |
+| Anything else | Note (default) |
+
+Type badge updates in real-time as Chad types. One tap to override.
+
+### Outcome Detection (from keywords anywhere in text)
+
+| Keywords found | Detected Outcome |
+|---|---|
+| "voicemail", "no answer", "no response" | Attempted |
+| Anything else | Connected (default) |
 
 ---
 
@@ -785,6 +928,9 @@ interface DataService {
   getFundedInvestments(filters?: FundedFilters): Promise<FundedInvestment[]>
   createFundedInvestment(data: CreateFundedInput): Promise<FundedInvestment>
   updateFundedInvestment(id: string, data: UpdateFundedInput): Promise<FundedInvestment>
+
+  // UI support
+  getLeadSourceCounts(): Promise<Record<string, number>> // count of people per lead source, for chip frequency ordering
 
   // Dashboard aggregations
   getDashboardStats(): Promise<DashboardStats>
@@ -846,6 +992,16 @@ Ships with V1. Contains all sample data from the reference JSX prototype:
 
 Data persists in memory during session. Resets on page reload (acceptable for demo/review purposes).
 
+**Singleton pattern (important for Next.js dev mode):** The data service singleton is stored on `globalThis` rather than a module-level variable. This ensures API routes and page renders share the same mock provider instance during development (Next.js can run multiple module instances in dev mode). The Zoho provider is stateless per-request, so this only matters for mock.
+
+> ⚠️ **Known HMR caveat:** During active development, if you save a file while the app is running, Next.js HMR can re-evaluate the mock module. The `globalThis` singleton preserves the reference to the old closure, but the module-scope arrays inside may reset. This causes "Prospect not found" errors for dynamically created records. Workaround: don't save files immediately after creating a test prospect, or restart the dev server to get a fresh state.
+
+**`getLeadSourceCounts()` method:** Returns a map of `leadSource → count` computed from all people records. Used by the LeadSourcePicker chip component to order chips by frequency of use. Computed once on mount, single-pass over the people array.
+
+**API route conventions:**
+- All mutation API routes call `revalidatePath()` after writing, so server components pick up the change on next render.
+- Client components use `window.location.reload()` after mutations instead of `router.refresh()` — more reliable state reset with the mock provider's in-memory store.
+
 ### 12.2 Zoho Provider
 
 IT team implements against the same interface. See Section 13 for the full integration checklist.
@@ -884,8 +1040,8 @@ IT team implements against the same interface. See Section 13 for the full integ
 
 **Picklists:**
 - [ ] Pipeline Stage — 11 values from Section 3
-- [ ] Lead Source — 10 values from Section 4.2
-- [ ] Activity Type — 10 values from Section 4.3
+- [ ] Lead Source — 10 values from Section 4.2 (**must match exactly** — the UI chip picker maps directly to these picklist API keys. No extra values, no renamed values.)
+- [ ] Activity Type — 11 values from Section 4.3 (including "Prospect Added" — system-only, never manually selected, but must exist as a valid picklist value so auto-created activities can be written)
 - [ ] Next Action Type — 7 values from Section 4.1
 - [ ] Activity Outcome — 2 values (Connected, Attempted)
 - [ ] Entity Type — 6 values (LLC, LLP, Trust, Individual, Corporation, Other)
@@ -896,6 +1052,20 @@ IT team implements against the same interface. See Section 13 for the full integ
 - [ ] Funding Entity Status — 3 values
 
 ### Phase 2: API Integration
+
+**New inline editing endpoints required:**
+The frontend now edits many fields directly on the Person Detail page without navigating away. The Zoho provider must support PATCH for all of these:
+- `PATCH /api/persons/[id]` — Phone, Email, Investment Target, Growth Target, Committed Amount, Lead Source
+- `PATCH /api/persons/[id]/stage` — Stage changes (already planned)
+- `PATCH /api/persons/[id]/next-action` — Next Action (already planned)
+- `POST /api/organizations` — Create org inline
+- `PATCH /api/persons/[id]` with `organizationId` — Link org to person
+- `POST /api/persons/[id]/funding-entities` — Create funding entity inline
+- `DELETE /api/persons/[id]/funding-entities/[entityId]` — Remove funding entity
+- `POST /api/persons/[id]/referrer` — Link referrer
+- `DELETE /api/persons/[id]/referrer` — Remove referrer
+
+**`getLeadSourceCounts()` method:** New method on the DataService interface. Returns `Record<string, number>` — a map of lead source key to count of people with that lead source. Powers the chip frequency ordering on the frontend. For Zoho: a single COQL query `SELECT Lead_Source, COUNT(id) FROM People GROUP BY Lead_Source`.
 
 - [ ] Generate Zoho API OAuth client (Self Client type for server-to-server)
 - [ ] Record Client ID, Client Secret, Refresh Token
