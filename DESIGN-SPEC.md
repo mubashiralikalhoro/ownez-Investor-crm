@@ -417,6 +417,12 @@ Considered for a future release. Chad can pin up to 10 prospects to the top of P
 
 Two-zone layout: a fixed **Cockpit** (always visible, never scrolls off) and a scrollable **Detail Zone** below it. Chad lives in the cockpit — it contains everything he needs for a call. The detail zone is the filing cabinet for occasional reference and editing.
 
+**Responsive two-column layout (✅ Built 2026-03-19):** On desktop/tablet (`lg+`), the Detail Zone splits into two columns:
+- **Left column** (flex): Profile Card + Activity Timeline — the working data Chad actively uses
+- **Right column** (300–340px): Relationships + Background Notes — reference data visible at a glance without scrolling
+
+On mobile, the layout collapses to a single column (Profile → Timeline → Relationships → Notes) to keep the one-handed experience clean.
+
 #### Cockpit (Fixed Top Zone) — order of sections
 
 **6.4.1 Identity Bar**
@@ -562,14 +568,16 @@ Six stacked KPI cards, each clickable to open a drill-down slide-out sheet (righ
 
 | Card | Value | Drill-down |
 |---|---|---|
-| AUM Raised | Sum of all FundedInvestment.amountInvested | List of funded investors: name, entity, amount, date |
-| Fund Target | Progress bar toward fund target (configurable in Admin → System Settings, default $10.5M) | Same as AUM Raised |
-| Funded YTD | Count of FundedInvestments in current calendar year | Funded investors this year |
-| Active | Count of prospects in active pipeline stages | Active prospects: name, stage, target, days idle |
-| Pipeline Value | Sum of initialInvestmentTarget for active prospects | Same list as Active |
+| AUM Raised | Sum of all FundedInvestment.amountInvested | All funded investors (all-time): name, funded amount, sorted by most recent investment date |
+| Fund Target | Progress bar toward fund target (configurable in Admin → System Settings, default $10.5M) | Same as AUM Raised (all funded investors) |
+| Funded YTD | Count of FundedInvestments in current calendar year | Funded investors this year only, sorted by most recent investment date |
+| Active | Count of prospects in active pipeline stages | Active prospects grouped by stage in reverse funnel order (KYC/Docs first → Prospect last), with stage headers and counts |
+| Pipeline Value | Sum of initialInvestmentTarget for active prospects | Same grouped list as Active |
 | Meetings | Count of meeting-type activities (7d/14d/30d toggle) | Meeting list: prospect name, date, detail |
 
-The Meetings card has a `7d / 14d / 30d` pill toggle; selected period highlighted in gold, default 30d.
+The Meetings card has a `7d / 14d / 30d` pill toggle; selected period highlighted in gold, default 30d. **The count updates live** when toggling periods — client-side fetch to `/api/leadership/meetings?days=N`.
+
+**Drill-down amount display:** Funded investor drill-downs show actual `fundedAmount` (sum of FundedInvestment records) with a "funded" label. Active pipeline drill-downs show `initialInvestmentTarget` with a "target" label. This prevents confusion between verbal targets and actual funded amounts.
 
 #### Right Panel: Pipeline Funnel
 
@@ -588,6 +596,8 @@ Columns: Source, Prospects, Funded, AUM, Conv%. Sorted by AUM descending. Click 
 
 Standard `Sheet` component slides in from the right. Shows header context label ("Pitch · 2 prospects") and a list of prospects or activities with clickable links to `/person/[id]`.
 
+**Active Pipeline drill-down** groups prospects by stage in reverse funnel order (bottom-of-funnel first: KYC/Docs → Commitment Processing → ... → Prospect). Each group has a stage header with count. **Funded drill-downs** sort by most recent investment date (newest first) and show actual funded amounts.
+
 **All original spec intent now implemented (2026-03-19):**
 - ✅ Fund target configurable via Admin → System Settings (default $10.5M)
 - ✅ Top Referrers panel (`components/leadership/top-referrers.tsx`)
@@ -602,9 +612,9 @@ Global search and browse for all people in the system — prospects, referrers, 
 
 **Search bar** at top — fuzzy search by name, company, email, phone.
 
-**Results** show: Name, Roles (badges), Organization, Contact Type/Company (if external contact), Stage (if prospect). Click → `/person/[id]`.
+**Results** show: Name, Roles (badges), Organization, Contact Type/Company (if external contact), Stage (if prospect). Click → `/person/[id]`. **Sorted alphabetically by name.**
 
-**Filters:** Role (Prospect, Referrer, Related Contact, Funded Investor), Organization.
+**Filters:** Role (Prospect, Referrer, Related Contact, Funded Investor), Organization. **Default filter: Prospects** (most commonly used view — Chad primarily works with prospects).
 
 On mobile, this is the "Search" tab in the bottom navigation. Opens as a full-screen search with large tap targets.
 
@@ -889,6 +899,7 @@ Two workflows are primary on mobile:
 | Last Viewed bar (top) | Last Viewed bar (top, same behavior) |
 | Pipeline table (10 columns) | Card list (name, stage, next action, stale dot, pin star) |
 | Person Detail: 2-column cockpit grid | Single column on mobile |
+| Person Detail: detail zone = 2 columns (left: profile+timeline, right: relationships+notes) | Single column on mobile (profile → timeline → relationships → notes) |
 | Person Detail: cockpit + detail zone | Cockpit zone fills viewport, detail zone scrolls below |
 | Dashboard header buttons: full text | Compact text on small screens |
 | Dashboard action queue: single-row | Two-line layout on mobile (name+stage on line 1, urgency+detail on line 2) |
@@ -1036,7 +1047,7 @@ interface DataService {
   getSourceROI(): Promise<SourceROIRow[]>
   // Per lead source: { source, label, prospectCount, fundedCount, aum, conversionPct }
   getDrilldownProspects(filter: DrilldownProspectFilter): Promise<PersonWithComputed[]>
-  // filter: { stage?, leadSource?, fundedYTD?, active? }
+  // filter: { stage?, leadSource?, fundedYTD?, fundedAll?, active? }
   getDrilldownActivities(filter: DrilldownActivityFilter): Promise<RecentActivityEntry[]>
   // filter: { activityType, days }
   getTopReferrers(limit?: number): Promise<ReferrerStats[]>

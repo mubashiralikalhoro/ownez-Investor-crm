@@ -63,6 +63,24 @@ Five tabs: **Users** | **Lead Sources** | **Stages** | **Activity Types** | **Se
 
 **New DataService methods:** `updateUser`, `deactivateUser`, `getLeadSources`, `updateLeadSource`, `reorderLeadSources`
 
+### UI Polish Session (2026-03-19, latest)
+
+#### Leadership Drilldown Fixes
+- **Active Pipeline drilldown** — now grouped by stage in reverse funnel order (KYC/Docs first → Prospect last) with stage headers and counts. Applies to both "Active" and "Pipeline Value" stat cards.
+- **Funded drilldowns** — AUM Raised and Fund Target now drill to all funded investors (all-time), not just YTD. Funded YTD still drills to current year only. All funded drilldowns show actual `fundedAmount` (from FundedInvestment records) with "funded" label, not `initialInvestmentTarget`. Sorted by most recent investment date.
+- **Meetings count** — toggles between 7d/14d/30d now live-update the count (client-side fetch), not just the drilldown.
+- **New filter:** `DrilldownProspectFilter.fundedAll` added to types + mock provider.
+
+#### People Directory
+- Default filter changed from "All" to "Prospects" (most common use case)
+- Results sorted alphabetically by name
+
+#### Person Detail — Two-Column Layout
+- On desktop/tablet (`lg+`): detail zone splits into two columns
+  - Left (flex): Profile Card + Activity Timeline
+  - Right (300–340px): Relationships + Background Notes
+- On mobile: single column as before (no change)
+
 ### Gap Closure Session (2026-03-19)
 
 All via Ralph Loop. 94 E2E tests passing.

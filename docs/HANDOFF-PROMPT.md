@@ -40,7 +40,7 @@ Custom Next.js CRM for OwnEZ Capital's HNW investor pipeline. Primary user is Ch
 - **User Menu:** Desktop sidebar avatar-row popover + mobile 4th-tab bottom sheet (sign out from both)
 - **Dashboard** (cockpit): hero card, action queue, stats footer, create prospect sheet, log activity sheet
 - **Pipeline View:** full table with stage/source/rep/stale filters, column sorting, inline Quick Log + Advance Stage from rows
-- **People Directory:** search by name/company
+- **People Directory:** search by name/company, default filter Prospects, sorted alphabetically
 - **Person Detail page — complete:**
   - Identity bar (name, phone/email with visible-pencil inline edit, stage badge, target)
   - Quick Log (collapsed by default, smart type detection, post-log next action prompt)
@@ -50,9 +50,10 @@ Custom Next.js CRM for OwnEZ Capital's HNW investor pipeline. Primary user is Ch
   - Activity timeline (filterable by type)
   - Relationships section (referrer, funding entities, related contacts — all editable inline)
   - Background notes
+  - **Two-column layout on desktop/tablet:** left = profile + timeline, right = relationships + notes. Single column on mobile.
   - Contextual back navigation (← Leadership / Pipeline / People / Dashboard depending on where you came from)
 - **Last Viewed Bar** (all screens): persistent bar showing most recently viewed prospect with inline Quick Log
-- **Leadership Dashboard** (`/leadership`): stat column (AUM, Fund Target progress, Funded YTD, Active, Pipeline Value, Meetings with 7/14/30d toggle), Pipeline Funnel, Source ROI Table, Top Referrers, Red Flags, drill-down sheets for all cards/rows. Ken (marketing) sees Source Attribution + Top Referrers only.
+- **Leadership Dashboard** (`/leadership`): stat column (AUM, Fund Target progress, Funded YTD, Active, Pipeline Value, Meetings with live 7/14/30d toggle), Pipeline Funnel, Source ROI Table, Top Referrers, Red Flags, drill-down sheets for all cards/rows. Active drilldown grouped by reverse funnel order. Funded drilldowns show actual funded amounts, sorted by most recent. Ken (marketing) sees Source Attribution + Top Referrers only.
 - **Admin Panel** (`/admin`): Users tab (inline edit, role templates, permissions, deactivate with reassign), Lead Sources tab (edit, toggle, reorder, add), Pipeline Stages tab (edit labels + idle thresholds), Activity Types tab (edit, toggle, add new), System Settings tab (fund target, company name)
 
 ## Key DataService methods (all in mock; all need Zoho impl)
@@ -74,7 +75,7 @@ Custom Next.js CRM for OwnEZ Capital's HNW investor pipeline. Primary user is Ch
 - `getMeetingsCount(days)` — count of meeting activities in past N days
 - `getFunnelData` — per-stage { stage, label, count, totalValue }
 - `getSourceROI` — per-source { source, label, prospectCount, fundedCount, aum, conversionPct }
-- `getDrilldownProspects(filter)` — prospects filtered by stage/leadSource/fundedYTD
+- `getDrilldownProspects(filter)` — prospects filtered by stage/leadSource/fundedYTD/fundedAll/active
 - `getDrilldownActivities(filter)` — activities filtered by type/days
 
 **Admin — Lead Sources:**

@@ -71,33 +71,42 @@ export default async function PersonDetailPage({
       </div>
 
       {/* Detail Zone — scrollable */}
-      <div className="px-3 md:px-8 py-4 md:py-6 space-y-5">
-        {/* Profile Card — stage, org, financials, lead source, rep */}
-        <ProfileCard
-          person={person}
-          users={users}
-          orgMembers={orgMembers}
-          sessionRole={session?.role ?? "rep"}
-        />
+      <div className="px-3 md:px-8 py-4 md:py-6">
+        <div className="flex flex-col lg:flex-row lg:gap-6">
+          {/* Left column: working data */}
+          <div className="flex-1 min-w-0 space-y-5">
+            {/* Profile Card — stage, org, financials, lead source, rep */}
+            <ProfileCard
+              person={person}
+              users={users}
+              orgMembers={orgMembers}
+              sessionRole={session?.role ?? "rep"}
+            />
 
-        {/* Activity Timeline */}
-        <ActivityTimeline activities={activities} users={users} />
+            {/* Activity Timeline */}
+            <ActivityTimeline activities={activities} users={users} />
+          </div>
 
-        <Separator />
+          {/* Right column: reference data (side panel on lg+, below on mobile) */}
+          <div className="lg:w-[300px] xl:w-[340px] lg:shrink-0 mt-5 lg:mt-0 space-y-5">
+            {/* Relationships — collapsible: referrer, funding entities, related contacts */}
+            <RelationshipsSection
+              person={person}
+              entities={entities}
+              relatedContacts={relatedContacts}
+              referrer={referrer}
+              referrals={referrals}
+            />
 
-        {/* Relationships — collapsible: referrer, funding entities, related contacts */}
-        <RelationshipsSection
-          person={person}
-          entities={entities}
-          relatedContacts={relatedContacts}
-          referrer={referrer}
-          referrals={referrals}
-        />
+            <Separator />
 
-        <Separator />
+            {/* Background Notes */}
+            <BackgroundNotes personId={person.id} notes={person.notes} />
+          </div>
+        </div>
 
-        {/* Background Notes */}
-        <BackgroundNotes personId={person.id} notes={person.notes} />
+        {/* Mobile separator — hidden on lg+ where columns handle separation */}
+        <Separator className="mt-5 lg:hidden" />
       </div>
     </div>
   );

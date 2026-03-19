@@ -819,11 +819,29 @@ export function createMockDataService(): DataService {
         );
         result = result.filter((p) => ytdPersonIds.has(p.id));
       }
+      if (filter.fundedAll) {
+        const fundedPersonIds = new Set(fundedInvestments.map((fi) => fi.personId));
+        result = result.filter((p) => fundedPersonIds.has(p.id));
+      }
       if (filter.active) {
         result = result.filter((p) => p.pipelineStage && ACTIVE_PIPELINE_STAGES.includes(p.pipelineStage));
       }
 
-      return result.map(enrichPerson);
+      let enriched = result.map(enrichPerson);
+
+      // Sort funded drilldowns by most recent investment date (newest first)
+      if (filter.fundedYTD || filter.fundedAll) {
+        const latestInvestmentDate = new Map<string, string>();
+        for (const fi of fundedInvestments) {
+          const existing = latestInvestmentDate.get(fi.personId);
+          if (!existing || fi.investmentDate > existing) {
+            latestInvestmentDate.set(fi.personId, fi.investmentDate);
+          }
+        }
+        enriched.sort((a, b) => (latestInvestmentDate.get(b.id) ?? "").localeCompare(latestInvestmentDate.get(a.id) ?? ""));
+      }
+
+      return enriched;
     },
 
     async getDrilldownActivities(filter: DrilldownActivityFilter): Promise<RecentActivityEntry[]> {

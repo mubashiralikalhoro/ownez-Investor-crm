@@ -29,7 +29,7 @@ const ROLE_FILTERS: { key: PersonRole | "all"; label: string }[] = [
 
 export function PeopleSearch({ allPeople }: PeopleSearchProps) {
   const [query, setQuery] = useState("");
-  const [roleFilter, setRoleFilter] = useState<PersonRole | "all">("all");
+  const [roleFilter, setRoleFilter] = useState<PersonRole | "all">("prospect");
 
   const filtered = allPeople.filter((p) => {
     const matchesQuery = !query ||
@@ -40,7 +40,7 @@ export function PeopleSearch({ allPeople }: PeopleSearchProps) {
     const matchesRole = roleFilter === "all" || p.roles.includes(roleFilter);
 
     return matchesQuery && matchesRole;
-  });
+  }).sort((a, b) => a.fullName.localeCompare(b.fullName));
 
   return (
     <div className="space-y-4">

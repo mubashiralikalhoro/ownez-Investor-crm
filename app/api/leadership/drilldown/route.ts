@@ -23,9 +23,17 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(data);
     }
 
-    if (type === "kpi" && value === "fundedYTD") {
-      const data = await ds.getDrilldownProspects({ fundedYTD: true });
-      return NextResponse.json(data);
+    if (type === "kpi" && (value === "fundedYTD" || value === "fundedAll")) {
+      const data = await ds.getDrilldownProspects(value === "fundedAll" ? { fundedAll: true } : { fundedYTD: true });
+      // Enrich each prospect with their actual funded amount
+      const enriched = await Promise.all(
+        data.map(async (p) => {
+          const investments = await ds.getFundedInvestments(p.id);
+          const fundedAmount = investments.reduce((sum, fi) => sum + fi.amountInvested, 0);
+          return { ...p, fundedAmount };
+        })
+      );
+      return NextResponse.json(enriched);
     }
 
     if (type === "kpi" && value === "active") {

@@ -209,6 +209,7 @@ export interface DrilldownProspectFilter {
   stage?: PipelineStage;
   leadSource?: string;
   fundedYTD?: boolean;
+  fundedAll?: boolean;
   active?: boolean;
 }
 

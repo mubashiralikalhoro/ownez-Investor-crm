@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { formatCurrency } from "@/lib/format";
 import { DrilldownSheet } from "./drilldown-sheet";
 import type { LeadershipStats, PersonWithComputed, RecentActivityEntry } from "@/lib/types";
 
 interface StatColumnProps {
   stats: LeadershipStats;
-  meetingsCount: number;
+  meetingsCount: number; // initial count for 30d (server-rendered)
 }
 
 interface DrilldownState {
@@ -15,13 +15,25 @@ interface DrilldownState {
   title: string;
   prospects?: PersonWithComputed[];
   activities?: RecentActivityEntry[];
+  groupByStage?: boolean;
 }
 
 const CLOSED: DrilldownState = { open: false, title: "" };
 
-export function StatColumn({ stats, meetingsCount }: StatColumnProps) {
+export function StatColumn({ stats, meetingsCount: initialMeetingsCount }: StatColumnProps) {
   const [meetingDays, setMeetingDays] = useState<7 | 14 | 30>(30);
+  const [liveMeetingsCount, setLiveMeetingsCount] = useState(initialMeetingsCount);
   const [drilldown, setDrilldown] = useState<DrilldownState>(CLOSED);
+
+  const fetchMeetingsCount = useCallback(async (days: number) => {
+    const res = await fetch(`/api/leadership/meetings?days=${days}`);
+    const data = await res.json();
+    if (data.count !== undefined) setLiveMeetingsCount(data.count);
+  }, []);
+
+  useEffect(() => {
+    fetchMeetingsCount(meetingDays);
+  }, [meetingDays, fetchMeetingsCount]);
 
   const progressPct = Math.min(100, Math.round((stats.aumRaised / stats.fundTarget) * 100));
 
@@ -34,11 +46,13 @@ export function StatColumn({ stats, meetingsCount }: StatColumnProps) {
     if (type === "kpi" && value === "meetings") {
       setDrilldown({ open: true, title: `Meetings · last ${days}d`, activities: data });
     } else {
-      setDrilldown({ open: true, title: getLabelForDrilldown(type, value, days), prospects: data });
+      const groupByStage = type === "kpi" && value === "active";
+      setDrilldown({ open: true, title: getLabelForDrilldown(type, value, days), prospects: data, groupByStage });
     }
   }
 
   function getLabelForDrilldown(type: string, value: string, days?: number): string {
+    if (type === "kpi" && value === "fundedAll") return "All Funded Investors";
     if (type === "kpi" && value === "fundedYTD") return "Funded YTD";
     if (type === "kpi" && value === "active") return "Active Pipeline";
     return value;
@@ -48,7 +62,7 @@ export function StatColumn({ stats, meetingsCount }: StatColumnProps) {
     {
       label: "AUM Raised",
       value: <span className="text-lg font-bold text-navy">{formatCurrency(stats.aumRaised)}</span>,
-      onClick: () => openDrilldown("kpi", "fundedYTD"),
+      onClick: () => openDrilldown("kpi", "fundedAll"),
     },
     {
       label: "Fund Target",
@@ -61,7 +75,7 @@ export function StatColumn({ stats, meetingsCount }: StatColumnProps) {
           <div className="text-[10px] text-muted-foreground">{formatCurrency(stats.aumRaised)} of {formatCurrency(stats.fundTarget)}</div>
         </div>
       ),
-      onClick: () => openDrilldown("kpi", "fundedYTD"),
+      onClick: () => openDrilldown("kpi", "fundedAll"),
     },
     {
       label: "Funded YTD",
@@ -102,7 +116,7 @@ export function StatColumn({ stats, meetingsCount }: StatColumnProps) {
           </div>
         </div>
       ) as unknown as string,
-      value: <span className="text-lg font-bold text-navy">{meetingsCount}</span>,
+      value: <span className="text-lg font-bold text-navy">{liveMeetingsCount}</span>,
       onClick: () => openDrilldown("kpi", "meetings", meetingDays),
     },
   ];
@@ -128,6 +142,7 @@ export function StatColumn({ stats, meetingsCount }: StatColumnProps) {
         title={drilldown.title}
         prospects={drilldown.prospects}
         activities={drilldown.activities}
+        groupByStage={drilldown.groupByStage}
       />
     </>
   );

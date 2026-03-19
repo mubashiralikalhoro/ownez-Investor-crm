@@ -1417,11 +1417,16 @@ interface DrilldownProspectFilter {
   stage?: string;        // filter by pipeline stage
   leadSource?: string;   // filter by lead source key
   fundedYTD?: boolean;   // only FundedInvestments created in current calendar year
+  fundedAll?: boolean;   // all people with any FundedInvestment records (all-time)
   active?: boolean;      // only active pipeline stages
 }
 ```
 
 **Zoho implementation:** Filter from `getPeople()` results — no separate Zoho API call needed.
+
+**Sorting:** When `fundedYTD` or `fundedAll` is set, results must be sorted by most recent investment date (newest first). Look up each person's latest `FundedInvestment.investmentDate` and sort descending.
+
+**Funded amount enrichment:** The API route (`/api/leadership/drilldown`) enriches funded drilldown results with a `fundedAmount` field (sum of all `FundedInvestment.amountInvested` for that person) before sending to the client. The Zoho provider does not need to add this field — the route handler computes it by calling `getFundedInvestments(personId)` for each result.
 
 ---
 
