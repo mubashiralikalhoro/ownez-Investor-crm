@@ -1,6 +1,6 @@
 import { getSession } from "@/lib/auth";
 import { SidebarNav, MobileNav } from "./sidebar-nav";
-import { LogoutButton } from "./logout-button";
+import { SidebarUserMenu } from "./sidebar-user-menu";
 
 export async function Sidebar() {
   const session = await getSession();
@@ -19,14 +19,13 @@ export async function Sidebar() {
 
         <SidebarNav role={session.role} />
 
-        <div className="border-t border-navy-light px-5 py-4">
-          <p className="text-sm text-white/60">{session.fullName.split(" ")[0]}</p>
-          <LogoutButton />
+        <div className="border-t border-navy-light">
+          <SidebarUserMenu fullName={session.fullName} role={session.role} />
         </div>
       </aside>
 
       {/* Mobile bottom tab bar */}
-      <MobileNav role={session.role} />
+      <MobileNav role={session.role} fullName={session.fullName} />
     </>
   );
 }
