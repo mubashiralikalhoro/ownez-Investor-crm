@@ -1,8 +1,136 @@
 # Zoho CRM Provider Implementation Guide
 
 **For:** IT developer implementing `lib/providers/zoho.ts`
-**Time estimate:** 4-6 hours
+**Time estimate:** 5-8 working days
 **Prerequisite reading:** `DESIGN-SPEC.md` Sections 2, 12, and 13
+
+---
+
+## 0. What You're Building & How to Verify It
+
+### The Goal
+
+You are building a single file — `lib/providers/zoho.ts` — that implements the `DataService` interface (`lib/types.ts`). This file replaces the mock provider (`lib/providers/mock.ts`) so the CRM reads/writes from Zoho CRM instead of in-memory data.
+
+**One env var switches providers:** Set `DATA_PROVIDER=zoho` in `.env.local` and the entire app uses Zoho. Set `DATA_PROVIDER=mock` (or omit it) to use mock data. The UI code never changes.
+
+### What Already Works
+
+The entire frontend is built and tested against the mock provider:
+- 94 Playwright E2E tests cover every screen and workflow
+- 33 provider-level tests verify every DataService method
+- All UI, API routes, and business logic are complete
+
+**Your job is to make the same tests pass with `DATA_PROVIDER=zoho`.**
+
+### The DataService Interface
+
+Your Zoho provider must implement every method in the `DataService` interface. The full interface is in `lib/types.ts` (lines 312-400). Key method groups:
+
+| Group | Methods | Count |
+|-------|---------|-------|
+| People | getPeople, getPerson, createPerson, updatePerson, searchPeople | 5 |
+| Activities | getActivities, getRecentActivities, createActivity | 3 |
+| Organizations | getOrganizations, searchOrganizations, createOrganization | 3 |
+| Funding Entities | getFundingEntities, createFundingEntity | 2 |
+| Funded Investments | getFundedInvestments, createFundedInvestment | 2 |
+| Relationships | getReferrerForProspect, getRelatedContacts, addReferrer, addRelatedContact, removeRelatedContact, getReferrals | 6 |
+| Dashboard | getDashboardStats | 1 |
+| Leadership | getLeadershipStats, getMeetingsCount, getFunnelData, getSourceROI, getDrilldownProspects, getDrilldownActivities, getTopReferrers, getRedFlags | 8 |
+| Users | getUsers, getUserByUsername | 2 |
+| Lead Sources | getLeadSources, createLeadSource, updateLeadSource, reorderLeadSources, getLeadSourceCounts | 5 |
+| Admin Users | updateUserPermissions, deactivateUser, getUnassignedProspects | 3 |
+| System Config | getSystemConfig, updateSystemConfig | 2 |
+| Pipeline Config | getPipelineStageConfigs, updatePipelineStageConfig | 2 |
+| Activity Config | getActivityTypeConfigs, updateActivityTypeConfig, createActivityType | 3 |
+| **Total** | | **47** |
+
+### Testing Strategy — Three Phases
+
+#### Phase 1: Provider Test Kit (as you build each method)
+
+A standalone test suite that calls DataService methods directly — no browser, no dev server.
+
+```bash
+# Run against mock (verify the test kit works):
+npx tsx scripts/test-provider.ts
+
+# Run against Zoho (verify your implementation):
+DATA_PROVIDER=zoho npx tsx scripts/test-provider.ts
+```
+
+This runs 33 tests covering every method group. Each test:
+1. Calls the method
+2. Validates the response shape (correct fields, correct types)
+3. Validates basic behavior (filters work, creates return IDs, etc.)
+
+**Use this as you build.** Implement `getPeople()` → run the test kit → 1 more test passes. Repeat for each method.
+
+#### Phase 2: E2E Tests (after all methods implemented)
+
+The existing 94 Playwright E2E tests exercise the full UI → API → DataService → Zoho pipeline.
+
+```bash
+# Start dev server with Zoho provider:
+DATA_PROVIDER=zoho npm run dev
+
+# In another terminal, run all E2E tests:
+npx playwright test
+```
+
+These tests log in as Chad/Eric/Ken, navigate screens, create prospects, log activities, check dashboard stats, etc. If they pass with `DATA_PROVIDER=zoho`, the integration is complete.
+
+**Important:** E2E tests that create/modify data need a way to reset Zoho to a known state. Options:
+1. **Zoho Sandbox** — use a sandbox org that can be reset
+2. **Seed script** — before each test run, bulk-delete test records and re-seed (see below)
+3. **Isolated test records** — prefix test data with `[TEST]` and clean up after
+
+#### Phase 3: Data Parity Check (final validation)
+
+Run both providers and compare outputs:
+
+```bash
+# The test kit prints results for both providers:
+npx tsx scripts/test-provider.ts > mock-results.txt
+DATA_PROVIDER=zoho npx tsx scripts/test-provider.ts > zoho-results.txt
+diff mock-results.txt zoho-results.txt
+```
+
+Both should show 33/33 passing. Any diff indicates a method that behaves differently.
+
+### Zoho Sandbox Seed Data
+
+The mock provider ships with specific test data (see `lib/providers/mock.ts`). To run E2E tests against Zoho, your sandbox needs equivalent records:
+
+| Entity | Key Records | Purpose |
+|--------|-------------|---------|
+| People | David Thornton (Pitch, $500K), Robert Calloway (Active Engagement), Angela Torres (KYC/Docs), Nathan Blake (Nurture), Michael Park (Dead) | Cover all pipeline stages |
+| Organizations | Calloway Family Office, Thornton Capital, Torres Family Office | Org relationships |
+| Funding Entities | Torres Family Trust (linked to Angela Torres) | Entity panel |
+| Funded Investments | At least 1 with amountInvested, investmentDate in current year | Dashboard/leadership stats |
+| Activities | Mix of calls, emails, meetings, notes across multiple prospects | Timeline, dashboard, leadership |
+| Users | Chad Cormier (rep), Ken Warsaw (marketing), Eric Gewirtzman (admin) | Auth + role-based access |
+| Referrer Links | At least 1 referrer → prospect link | Top Referrers panel |
+| Related Contacts | Mrs. Calloway linked to Robert Calloway | Related contacts panel |
+
+The full mock data set is in `lib/providers/mock.ts` — you can reference it line-by-line for exact field values.
+
+### Recommended Build Order
+
+Build and test in this order (matches the test kit groups):
+
+1. **OAuth + `zohoFetch()` utility** — token refresh, base URL, error handling
+2. **People** — the foundation; most other methods depend on person records
+3. **Activities** — needed for dashboard stats and timeline
+4. **Organizations** — simple CRUD, tests org relationships
+5. **Funding Entities + Investments** — needed for AUM/funded stats
+6. **Relationships** — referrer links, related contacts
+7. **Dashboard + Leadership** — aggregation methods (depend on 2-6)
+8. **Users** — auth integration
+9. **Admin Config** — lead sources, pipeline stages, activity types, system config
+10. **Communication Integrations** — telephony, email sync (Phase 3, can be deferred)
+
+After each group, run: `DATA_PROVIDER=zoho npx tsx scripts/test-provider.ts`
 
 ---
 
@@ -1898,7 +2026,9 @@ function areWithin5Minutes(time1: string | null, time2: string | null): boolean 
 
 ## 9. Testing Checklist
 
-Verify each endpoint after implementation. Use the Zoho sandbox or a test Contacts record.
+> **Automated testing:** Run `DATA_PROVIDER=zoho npx tsx scripts/test-provider.ts` to verify all 33 provider-level tests pass. Then run `npx playwright test` with the dev server on `DATA_PROVIDER=zoho` to verify all 94 E2E tests pass. See Section 0 for the full testing strategy.
+
+Manual verification checklist (for anything the automated tests don't cover):
 
 ### People (Contacts)
 
