@@ -226,6 +226,42 @@ export interface LeadSourceConfig {
   isActive: boolean;
 }
 
+// ─── Pipeline Stage Config ───
+
+export interface PipelineStageConfig {
+  key: PipelineStage;
+  label: string;
+  idleThreshold: number | null;
+  order: number;
+}
+
+// ─── Activity Type Config ───
+
+export interface ActivityTypeConfig {
+  key: string;
+  label: string;
+  isActive: boolean;
+  isSystem: boolean; // stage_change, reassignment — not editable
+}
+
+// ─── Referrer Stats ───
+
+export interface ReferrerStats {
+  referrerId: string;
+  referrerName: string;
+  referralCount: number;
+  pipelineValue: number;
+  fundedValue: number;
+}
+
+// ─── System Config ───
+
+export interface SystemConfig {
+  fundTarget: number;
+  companyName: string;
+  defaultRepId: string | null;
+}
+
 // ─── Dashboard Stats ───
 
 export interface DashboardStats {
@@ -325,6 +361,12 @@ export interface DataService {
   getDrilldownProspects(filter: DrilldownProspectFilter): Promise<PersonWithComputed[]>;
   getDrilldownActivities(filter: DrilldownActivityFilter): Promise<RecentActivityEntry[]>;
 
+  // Top Referrers
+  getTopReferrers(limit?: number): Promise<ReferrerStats[]>;
+
+  // Red Flags (stale/overdue)
+  getRedFlags(): Promise<PersonWithComputed[]>;
+
   // Lead Sources (dynamic)
   getLeadSources(opts?: { includeInactive?: boolean }): Promise<LeadSourceConfig[]>;
   createLeadSource(data: { label: string }): Promise<LeadSourceConfig>;
@@ -335,6 +377,19 @@ export interface DataService {
   updateUserPermissions(userId: string, permissions: UserPermissions): Promise<User>;
   deactivateUser(userId: string, reassignToId?: string): Promise<void>;
   getUnassignedProspects(): Promise<PersonWithComputed[]>;
+
+  // System Config
+  getSystemConfig(): Promise<SystemConfig>;
+  updateSystemConfig(data: Partial<SystemConfig>): Promise<SystemConfig>;
+
+  // Pipeline Stage Config
+  getPipelineStageConfigs(): Promise<PipelineStageConfig[]>;
+  updatePipelineStageConfig(key: PipelineStage, data: Partial<Pick<PipelineStageConfig, "label" | "idleThreshold">>): Promise<PipelineStageConfig>;
+
+  // Activity Type Config
+  getActivityTypeConfigs(): Promise<ActivityTypeConfig[]>;
+  updateActivityTypeConfig(key: string, data: Partial<Pick<ActivityTypeConfig, "label" | "isActive">>): Promise<ActivityTypeConfig>;
+  createActivityType(data: { label: string }): Promise<ActivityTypeConfig>;
 
   // Testing
   resetData?(): void;

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Sidebar } from "@/components/sidebar";
+import { LastViewedBar } from "@/components/last-viewed-bar";
 import { getSession } from "@/lib/auth";
 import "./globals.css";
 
@@ -33,6 +34,7 @@ export default async function RootLayout({
         {isLoggedIn ? (
           <div className="flex min-h-screen">
             <main className="md:ml-[180px] flex-1 min-h-screen pb-16 md:pb-0">
+              <LastViewedBar />
               {children}
             </main>
             <Sidebar />

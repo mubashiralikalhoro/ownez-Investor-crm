@@ -128,8 +128,8 @@ test.describe("Leadership Dashboard — pipeline funnel", () => {
   });
 
   test("shows active pipeline stages", async ({ page }) => {
-    await expect(page.getByText("Prospect", { exact: true })).toBeVisible();
-    await expect(page.getByText("Active Engagement", { exact: true })).toBeVisible();
+    await expect(page.getByText("Prospect", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("Active Engagement", { exact: true }).first()).toBeVisible();
   });
 
   test("shows funded row in green", async ({ page }) => {
@@ -158,9 +158,9 @@ test.describe("Leadership Dashboard — source ROI table", () => {
   });
 
   test("shows table columns", async ({ page }) => {
-    await expect(page.getByRole("columnheader", { name: "Source" })).toBeVisible();
-    await expect(page.getByRole("columnheader", { name: "Funded" })).toBeVisible();
-    await expect(page.getByRole("columnheader", { name: "AUM" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Source" }).first()).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Funded" }).first()).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "AUM" }).first()).toBeVisible();
     await expect(page.getByRole("columnheader", { name: "Conv%" })).toBeVisible();
   });
 

@@ -2,9 +2,10 @@ import type {
   Person, Organization, FundingEntity, Activity, FundedInvestment, User,
   ReferrerLink, RelatedContactLink, PersonWithComputed, DashboardStats,
   PeopleFilters, ActivityFilters, RecentActivityFilters, RecentActivityEntry,
-  DataService, PipelineStage,
+  DataService, PipelineStage, SystemConfig, ReferrerStats,
   LeadershipStats, FunnelStage, SourceROIRow, DrilldownProspectFilter,
   DrilldownActivityFilter, LeadSourceConfig, UserPermissions,
+  PipelineStageConfig, ActivityTypeConfig,
 } from "../types";
 import { ACTIVE_PIPELINE_STAGES, COMMITTED_STAGES, TOUCH_ACTIVITY_TYPES, LEAD_SOURCES, PIPELINE_STAGES } from "../constants";
 import { computeDaysSinceLastTouch, computeIsStale, computeIsOverdue } from "../stale";
@@ -32,6 +33,43 @@ let leadSourceConfigs: LeadSourceConfig[] = LEAD_SOURCES.map((s, i) => ({
 }));
 
 const INITIAL_LEAD_SOURCE_CONFIGS = JSON.stringify(leadSourceConfigs);
+
+// ─── System Config ───
+let systemConfig: SystemConfig = {
+  fundTarget: 10_500_000,
+  companyName: "OwnEZ Capital",
+  defaultRepId: "u-chad",
+};
+
+const INITIAL_SYSTEM_CONFIG = JSON.stringify(systemConfig);
+
+// ─── Pipeline Stage Configs ───
+let pipelineStageConfigs: PipelineStageConfig[] = PIPELINE_STAGES.map((s) => ({
+  key: s.key,
+  label: s.label,
+  idleThreshold: s.idleThreshold,
+  order: s.order,
+}));
+
+const INITIAL_PIPELINE_STAGE_CONFIGS = JSON.stringify(pipelineStageConfigs);
+
+// ─── Activity Type Configs ───
+const SYSTEM_ACTIVITY_TYPES = ["stage_change", "reassignment"];
+let activityTypeConfigs: ActivityTypeConfig[] = [
+  { key: "call", label: "Call", isActive: true, isSystem: false },
+  { key: "email", label: "Email", isActive: true, isSystem: false },
+  { key: "meeting", label: "Meeting", isActive: true, isSystem: false },
+  { key: "note", label: "Note", isActive: true, isSystem: false },
+  { key: "text_message", label: "Text Message", isActive: true, isSystem: false },
+  { key: "linkedin_message", label: "LinkedIn Message", isActive: true, isSystem: false },
+  { key: "whatsapp", label: "WhatsApp", isActive: true, isSystem: false },
+  { key: "document_sent", label: "Document Sent", isActive: true, isSystem: false },
+  { key: "document_received", label: "Document Received", isActive: true, isSystem: false },
+  { key: "stage_change", label: "Stage Change", isActive: true, isSystem: true },
+  { key: "reassignment", label: "Reassignment", isActive: true, isSystem: true },
+];
+
+const INITIAL_ACTIVITY_TYPE_CONFIGS = JSON.stringify(activityTypeConfigs);
 
 // ─── Organizations ───
 let organizations: Organization[] = [
@@ -370,6 +408,9 @@ function resetMockData() {
   relatedContactLinks = JSON.parse(INITIAL_RELATED_CONTACT_LINKS);
   users = JSON.parse(INITIAL_USERS);
   leadSourceConfigs = JSON.parse(INITIAL_LEAD_SOURCE_CONFIGS);
+  systemConfig = JSON.parse(INITIAL_SYSTEM_CONFIG);
+  pipelineStageConfigs = JSON.parse(INITIAL_PIPELINE_STAGE_CONFIGS);
+  activityTypeConfigs = JSON.parse(INITIAL_ACTIVITY_TYPE_CONFIGS);
 }
 
 // ─── Helper: enrich person with computed fields ───
@@ -700,7 +741,7 @@ export function createMockDataService(): DataService {
       );
       return {
         aumRaised,
-        fundTarget: 10_000_000,
+        fundTarget: systemConfig.fundTarget,
         fundedYTDCount,
         activeCount: activeProspects.length,
         pipelineValue: activeProspects.reduce((sum, p) => sum + (p.initialInvestmentTarget ?? 0), 0),
@@ -799,6 +840,49 @@ export function createMockDataService(): DataService {
         });
     },
 
+    // ─── Top Referrers ───
+    async getTopReferrers(limit = 5): Promise<ReferrerStats[]> {
+      const referrerMap = new Map<string, { referrerId: string; referrerName: string; prospects: string[] }>();
+
+      for (const link of referrerLinks) {
+        const referrer = people.find((p) => p.id === link.referrerId);
+        if (!referrer) continue;
+        if (!referrerMap.has(link.referrerId)) {
+          referrerMap.set(link.referrerId, { referrerId: link.referrerId, referrerName: referrer.fullName, prospects: [] });
+        }
+        referrerMap.get(link.referrerId)!.prospects.push(link.prospectId);
+      }
+
+      return Array.from(referrerMap.values())
+        .map((r) => {
+          const prospects = r.prospects.map((pid) => people.find((p) => p.id === pid)).filter(Boolean) as Person[];
+          const pipelineValue = prospects
+            .filter((p) => p.pipelineStage && ACTIVE_PIPELINE_STAGES.includes(p.pipelineStage))
+            .reduce((sum, p) => sum + (p.initialInvestmentTarget ?? 0), 0);
+          const fundedValue = fundedInvestments
+            .filter((fi) => r.prospects.includes(fi.personId))
+            .reduce((sum, fi) => sum + fi.amountInvested, 0);
+          return {
+            referrerId: r.referrerId,
+            referrerName: r.referrerName,
+            referralCount: r.prospects.length,
+            pipelineValue,
+            fundedValue,
+          };
+        })
+        .sort((a, b) => b.referralCount - a.referralCount || b.fundedValue - a.fundedValue)
+        .slice(0, limit);
+    },
+
+    // ─── Red Flags ───
+    async getRedFlags(): Promise<PersonWithComputed[]> {
+      return people
+        .filter((p) => p.roles.includes("prospect") && p.pipelineStage && ACTIVE_PIPELINE_STAGES.includes(p.pipelineStage))
+        .map(enrichPerson)
+        .filter((p) => p.isStale || p.isOverdue)
+        .sort((a, b) => (b.daysSinceLastTouch ?? 0) - (a.daysSinceLastTouch ?? 0));
+    },
+
     // ─── Lead Sources ───
     async getLeadSources(opts?: { includeInactive?: boolean }): Promise<LeadSourceConfig[]> {
       const sorted = [...leadSourceConfigs].sort((a, b) => a.order - b.order);
@@ -855,6 +939,59 @@ export function createMockDataService(): DataService {
       return people
         .filter((p) => p.roles.includes("prospect") && p.assignedRepId === null && p.pipelineStage && ACTIVE_PIPELINE_STAGES.includes(p.pipelineStage))
         .map(enrichPerson);
+    },
+
+    // ─── Pipeline Stage Config ───
+    async getPipelineStageConfigs(): Promise<PipelineStageConfig[]> {
+      return [...pipelineStageConfigs].sort((a, b) => a.order - b.order);
+    },
+
+    async updatePipelineStageConfig(
+      key: PipelineStage,
+      data: Partial<Pick<PipelineStageConfig, "label" | "idleThreshold">>
+    ): Promise<PipelineStageConfig> {
+      const config = pipelineStageConfigs.find((c) => c.key === key);
+      if (!config) throw new Error(`Stage not found: ${key}`);
+      if (data.label !== undefined) config.label = data.label;
+      if (data.idleThreshold !== undefined) config.idleThreshold = data.idleThreshold;
+      return { ...config };
+    },
+
+    // ─── Activity Type Config ───
+    async getActivityTypeConfigs(): Promise<ActivityTypeConfig[]> {
+      return [...activityTypeConfigs];
+    },
+
+    async updateActivityTypeConfig(
+      key: string,
+      data: Partial<Pick<ActivityTypeConfig, "label" | "isActive">>
+    ): Promise<ActivityTypeConfig> {
+      const config = activityTypeConfigs.find((c) => c.key === key);
+      if (!config) throw new Error(`Activity type not found: ${key}`);
+      if (config.isSystem) throw new Error(`System activity types cannot be modified`);
+      if (data.label !== undefined) config.label = data.label;
+      if (data.isActive !== undefined) config.isActive = data.isActive;
+      return { ...config };
+    },
+
+    async createActivityType(data: { label: string }): Promise<ActivityTypeConfig> {
+      const key = data.label
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_|_$/g, "");
+      const newType: ActivityTypeConfig = { key, label: data.label, isActive: true, isSystem: false };
+      activityTypeConfigs.push(newType);
+      return newType;
+    },
+
+    // ─── System Config ───
+    async getSystemConfig(): Promise<SystemConfig> {
+      return { ...systemConfig };
+    },
+
+    async updateSystemConfig(data: Partial<SystemConfig>): Promise<SystemConfig> {
+      systemConfig = { ...systemConfig, ...data };
+      return { ...systemConfig };
     },
 
     // ─── Testing ───

@@ -9,6 +9,7 @@ import { ActivityTimeline } from "@/components/person/activity-timeline";
 import { ProfileCard } from "@/components/person/profile-card";
 import { RelationshipsSection } from "@/components/person/relationships-section";
 import { BackgroundNotes } from "@/components/person/background-notes";
+import { SetLastViewed } from "@/components/set-last-viewed";
 import { Separator } from "@/components/ui/separator";
 
 export default async function PersonDetailPage({
@@ -43,6 +44,12 @@ export default async function PersonDetailPage({
 
   return (
     <div className="max-w-[1100px] overflow-x-hidden">
+      <SetLastViewed
+        id={person.id}
+        fullName={person.fullName}
+        pipelineStage={person.pipelineStage}
+        organizationName={person.organizationName}
+      />
       {/* Back link */}
       <div className="px-3 md:px-8 pt-3 md:pt-6">
         <Link href="/" className="text-xs text-muted-foreground hover:text-gold transition-colors">
@@ -50,8 +57,8 @@ export default async function PersonDetailPage({
         </Link>
       </div>
 
-      {/* Cockpit Zone — sticky top: identity, quick log, next action */}
-      <div className="sticky top-0 z-20 bg-background border-b px-3 md:px-8 py-3 md:py-4 space-y-2 md:space-y-3 overflow-hidden">
+      {/* Cockpit Zone — sticky below last-viewed bar: identity, quick log, next action */}
+      <div className="sticky top-[33px] z-10 bg-background border-b px-3 md:px-8 py-3 md:py-4 space-y-2 md:space-y-3 overflow-hidden">
         <IdentityBar person={person} />
         <QuickLog person={person} />
         <NextActionBar person={person} />

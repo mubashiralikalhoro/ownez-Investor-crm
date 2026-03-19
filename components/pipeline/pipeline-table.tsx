@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
-import { ChevronUp, ChevronDown } from "lucide-react";
+import { ChevronUp, ChevronDown, MessageSquare, ArrowRight } from "lucide-react";
 import { formatCurrency, formatRelativeDate } from "@/lib/format";
 import { STAGE_LABELS, LEAD_SOURCE_LABELS, NEXT_ACTION_TYPES, PIPELINE_STAGES, LEAD_SOURCES } from "@/lib/constants";
+import { InlineQuickLog } from "./inline-quick-log";
 import type { PersonWithComputed, PipelineStage, LeadSource, User } from "@/lib/types";
 
 type SortKey = "fullName" | "organizationName" | "pipelineStage" | "initialInvestmentTarget" | "growthTarget" | "leadSource" | "activityCount" | "daysSinceLastTouch" | "nextActionDetail" | "nextActionDate" | "assignedRepName";
@@ -25,6 +26,8 @@ export function PipelineTable({ people, users = [], initialRepFilter = "" }: Pip
   const [staleOnly, setStaleOnly] = useState(false);
   const [repPickerOpen, setRepPickerOpen] = useState<string | null>(null);
   const [localReps, setLocalReps] = useState<Record<string, string | null>>({});
+  const [quickLogOpen, setQuickLogOpen] = useState<string | null>(null);
+  const [advancingStage, setAdvancingStage] = useState<string | null>(null);
 
   const reps = users.filter((u) => u.isActive && u.role === "rep");
 
@@ -45,6 +48,34 @@ export function PipelineTable({ people, users = [], initialRepFilter = "" }: Pip
     });
     setLocalReps((prev) => ({ ...prev, [personId]: newRepId }));
     setRepPickerOpen(null);
+  }
+
+  async function advanceStage(person: PersonWithComputed) {
+    const stages = ["prospect", "initial_contact", "discovery", "pitch", "active_engagement", "soft_commit", "commitment_processing", "kyc_docs", "funded"];
+    const currentIdx = stages.indexOf(person.pipelineStage ?? "");
+    if (currentIdx < 0 || currentIdx >= stages.length - 1) return;
+    const nextStage = stages[currentIdx + 1];
+    const nextLabel = STAGE_LABELS[nextStage as PipelineStage] ?? nextStage;
+    if (!confirm(`Advance ${person.fullName} to ${nextLabel}?`)) return;
+
+    setAdvancingStage(person.id);
+    try {
+      await fetch(`/api/persons/${person.id}/stage`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ newStage: nextStage }),
+      });
+      window.location.reload();
+    } finally {
+      setAdvancingStage(null);
+    }
+  }
+
+  function getNextStageName(person: PersonWithComputed): string | null {
+    const stages = ["prospect", "initial_contact", "discovery", "pitch", "active_engagement", "soft_commit", "commitment_processing", "kyc_docs", "funded"];
+    const currentIdx = stages.indexOf(person.pipelineStage ?? "");
+    if (currentIdx < 0 || currentIdx >= stages.length - 1) return null;
+    return STAGE_LABELS[stages[currentIdx + 1] as PipelineStage] ?? null;
   }
 
   function getEffectiveRepId(person: PersonWithComputed): string | null {
@@ -207,10 +238,12 @@ export function PipelineTable({ people, users = [], initialRepFilter = "" }: Pip
               </tr>
             </thead>
             <tbody>
-              {sorted.map((person) => (
+              {sorted.map((person) => {
+                const nextStageName = getNextStageName(person);
+                return (
+                <React.Fragment key={person.id}>
                 <tr
-                  key={person.id}
-                  className="border-b last:border-0 hover:bg-muted/50 transition-colors cursor-pointer"
+                  className={`border-b last:border-0 hover:bg-muted/50 transition-colors cursor-pointer group ${quickLogOpen === person.id ? "bg-gold/5" : ""}`}
                 >
                   <td className="px-4 py-3">
                     <Link href={`/person/${person.id}`} className="font-medium text-navy hover:text-gold transition-colors">
@@ -292,12 +325,41 @@ export function PipelineTable({ people, users = [], initialRepFilter = "" }: Pip
                     </span>
                   </td>
                   <td className="px-4 py-3">
-                    {(person.isStale || person.isOverdue) && (
-                      <span className="inline-block h-2 w-2 rounded-full bg-alert-red" />
-                    )}
+                    <div className="flex items-center gap-1">
+                      {(person.isStale || person.isOverdue) && (
+                        <span className="inline-block h-2 w-2 rounded-full bg-alert-red" />
+                      )}
+                      <div className="hidden group-hover:flex items-center gap-0.5 ml-1">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setQuickLogOpen(quickLogOpen === person.id ? null : person.id); }}
+                          className="p-1 rounded hover:bg-gold/20 text-muted-foreground hover:text-gold transition-colors"
+                          title="Quick Log"
+                        >
+                          <MessageSquare size={14} />
+                        </button>
+                        {nextStageName && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); advanceStage(person); }}
+                            disabled={advancingStage === person.id}
+                            className="p-1 rounded hover:bg-gold/20 text-muted-foreground hover:text-gold transition-colors disabled:opacity-50"
+                            title={`Advance to ${nextStageName}`}
+                          >
+                            <ArrowRight size={14} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   </td>
                 </tr>
-              ))}
+                {quickLogOpen === person.id && (
+                  <InlineQuickLog
+                    person={person}
+                    onDone={() => setQuickLogOpen(null)}
+                  />
+                )}
+                </React.Fragment>
+                );
+              })}
             </tbody>
           </table>
         )}

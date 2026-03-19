@@ -380,7 +380,8 @@ Pipeline: 10  │  Value: $3.4M  │  Committed: $1.1M  │  Funded YTD: $850K
 ```
 - Stats definitions unchanged: Active Pipeline Count, Pipeline Value, Committed (Soft Commit → KYC stages), Funded YTD (from Funded Investment records)
 
-**Recent Activity (collapsible, collapsed by default):**
+**Recent Activity (future release — collapsible, collapsed by default):**
+> Deferred to a future release.
 - Reverse-chronological feed of all activities across all prospects, last 7 days
 - Columns: Date/Time, Person (linked), Activity Type, Outcome, Detail (truncated), Logged By
 - Filterable by rep (Admin sees all, rep defaults to own)
@@ -400,13 +401,12 @@ Full sortable table of all active pipeline records (excluding Nurture and Dead).
 
 **Row click:** Opens `/person/[id]`
 
-**Pinned Prospects:**
-Chad can pin up to 10 prospects to the top of Pipeline View (star icon on each row). Pinned prospects always appear above the separator line regardless of sort order or filters. One click to pin/unpin. Pin state is per-user (stored in user preferences, not on the prospect record). Transforms Pipeline View from "here's your entire world" to "here's what you're focused on this week, and everything else is below."
+**Pinned Prospects (future release):**
+Considered for a future release. Chad can pin up to 10 prospects to the top of Pipeline View (star icon on each row). Pinned prospects always appear above the separator line regardless of sort order or filters. One click to pin/unpin. Pin state is per-user (stored in user preferences, not on the prospect record).
 
 **Inline row actions** (hover on desktop, swipe on mobile):
 1. **Quick Log** — compact inline text input opens directly on the row. Type, Enter, confirm Next Action, done. User never leaves Pipeline View. Identical behavior to Person Detail Quick Log (including smart prefix detection, outcome detection, and the Next Action prompt).
 2. **Advance Stage** — one-click to move to the next sequential stage (e.g., Pitch → Active Engagement). Fires the post-stage-change prompt inline. For non-sequential moves (Nurture, Dead, skip stages), user must open Person Detail.
-3. **Pin/Unpin** — star icon toggle.
 
 **Design notes:**
 - Dollar amounts right-aligned, formatted with $ and K/M abbreviation
@@ -563,7 +563,7 @@ Six stacked KPI cards, each clickable to open a drill-down slide-out sheet (righ
 | Card | Value | Drill-down |
 |---|---|---|
 | AUM Raised | Sum of all FundedInvestment.amountInvested | List of funded investors: name, entity, amount, date |
-| Fund Target | Progress bar toward $10M target (V1 hardcoded) | Same as AUM Raised |
+| Fund Target | Progress bar toward fund target (configurable in Admin → System Settings, default $10.5M) | Same as AUM Raised |
 | Funded YTD | Count of FundedInvestments in current calendar year | Funded investors this year |
 | Active | Count of prospects in active pipeline stages | Active prospects: name, stage, target, days idle |
 | Pipeline Value | Sum of initialInvestmentTarget for active prospects | Same list as Active |
@@ -589,7 +589,7 @@ Columns: Source, Prospects, Funded, AUM, Conv%. Sorted by AUM descending. Click 
 Standard `Sheet` component slides in from the right. Shows header context label ("Pitch · 2 prospects") and a list of prospects or activities with clickable links to `/person/[id]`.
 
 **Original spec intent not yet implemented:**
-- AUM progress bar vs. $105M target (current build uses $10M V1 hardcoded)
+- Fund target configurable via Admin → System Settings (default $10.5M)
 - Top Referrers panel
 - Red Flags panel (stale/overdue prospects at a glance)
 - Ken partial-access view (Source Attribution + Top Referrers only)
@@ -684,7 +684,7 @@ List of all current lead sources. Per-row controls:
 - Pipeline Stage Config — edit stage names, idle thresholds, ordering
 - Activity Type Management — add/remove/rename
 - Data Hygiene — merge duplicates
-- System Settings — AUM baseline/target, default rep, company name
+- System Settings — Fund target (default $10.5M, admin-only), default rep, company name
 
 ### 6.9 Date Quick-Pick Chips
 
@@ -696,7 +696,9 @@ Everywhere a Next Action Date is entered — Quick Log prompt, post-stage-change
 
 One tap, done. The calendar icon (📅) opens a full date picker for specific dates, but most of the time Chad never needs it. "Mon" and "Fri" resolve to the next upcoming Monday/Friday. Chips are contextual to CT timezone.
 
-### 6.10 Keyboard Shortcuts (Desktop)
+### 6.10 Keyboard Shortcuts (Desktop) — Future Release
+
+> **Deferred to a future release.** The core loop below is the target design for when keyboard shortcuts are implemented.
 
 The core loop — find, log, update, advance — should be achievable without touching the mouse.
 
@@ -1286,6 +1288,9 @@ If this needs to change in the future, add a "Fund" picklist to the Funded Inves
 - Zoho Books or accounting integration
 - Native mobile app (responsive web handles mobile use cases)
 - Post-funded investor management workflows (re-investment, track management — to be decided: Zoho native or future module)
+- Pinned Prospects (pipeline star/pin feature — see §6.3)
+- Keyboard Shortcuts (full keyboard navigation — see §6.10)
+- Dashboard Recent Activity feed (cross-prospect activity log — see §6.2)
 
 **In scope (full UI ships with mock V1, live integration via Zoho provider):**
 - **O365 email sync display** — Zoho handles the sync, frontend displays synced emails as Activity Log entries with Source = "O365 Sync". Mock V1 ships with realistic sample entries showing the full UI: ⚡AUTO badge, email subject/preview, Outcome, annotation prompt. Switching to Zoho provider activates live sync — zero UI changes.
