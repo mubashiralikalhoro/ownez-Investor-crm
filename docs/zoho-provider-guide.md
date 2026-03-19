@@ -1414,7 +1414,7 @@ Returns the filtered prospect list for drill-down sheets in the Leadership Dashb
 
 ```typescript
 interface DrilldownProspectFilter {
-  stage?: string;        // filter by pipeline stage
+  stage?: PipelineStage;  // filter by pipeline stage (union type from lib/types.ts)
   leadSource?: string;   // filter by lead source key
   fundedYTD?: boolean;   // only FundedInvestments created in current calendar year
   fundedAll?: boolean;   // all people with any FundedInvestment records (all-time)

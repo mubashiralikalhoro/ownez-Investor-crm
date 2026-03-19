@@ -1,8 +1,12 @@
 # OwnEZ CRM — Development Handoff
 
-## Project State (as of 2026-03-19, updated post-leadership-admin-logout session)
+## Project State (as of 2026-03-19)
 
 Custom Next.js CRM frontend for OwnEZ Capital's HNW investor pipeline. Uses Zoho CRM as the database via API. Currently running with mock data provider — all features work without Zoho connection.
+
+**Live deployment:** https://ownez-crm.vercel.app (auto-deploys from GitHub)
+**Repository:** https://github.com/ownez-capital/ownez-investor-crm (branch: `phase1/foundation`)
+**124 E2E tests passing, 33 provider tests passing.**
 
 ## What's Been Built
 
@@ -317,11 +321,16 @@ components/
     date-quick-pick.tsx       — Date shortcuts (Today, Tomorrow, +3d, +7d, +14d, +30d)
     sheet.tsx                 — Base UI Sheet (used by mobile nav and drill-down)
 
-e2e/
+e2e/                            — 124 E2E tests total
   auth.spec.ts                — 14 tests: login, logout, user menu (desktop + mobile)
-  leadership.spec.ts          — ~20 tests: leadership stats, funnel, source ROI, drill-down
-  admin.spec.ts               — ~19 tests: users tab, lead sources tab
-  (plus prior spec files for dashboard, person-detail, pipeline, etc.)
+  dashboard.spec.ts           — 8 tests: hero card, action queue, stats, create/log sheets
+  leadership-admin.spec.ts    — 39 tests: leadership stats, funnel, source ROI, admin tabs
+  people.spec.ts              — 7 tests: people directory, search, filters
+  person-detail-completion.spec.ts — 24 tests: relationships, collaborators, stage flows
+  person-detail.spec.ts       — 17 tests: identity bar, quick log, next action, profile
+  pipeline.spec.ts            — 8 tests: pipeline table, filters, inline actions
+  sidebar.spec.ts             — 5 tests: sidebar nav, mobile nav
+  workflow.spec.ts            — 2 tests: end-to-end workflow
 
 docs/
   DESIGN-SPEC.md              — Version 1.2 (updated with leadership, admin, user menu)
@@ -336,33 +345,18 @@ docs/
 
 ## What's NOT Built Yet
 
-From DESIGN-SPEC.md, these features are still pending:
+**Planned:**
+- **Admin Role Templates** — define permission sets at the template level
+- **Admin Data Hygiene** — merge duplicate people/orgs
+- **Zoho provider** (`lib/providers/zoho.ts`) — IT team builds this per `docs/zoho-provider-guide.md`
 
-**High Priority:**
-- **Pipeline inline actions** — quick log, advance stage, pin/unpin from pipeline rows (no navigation required)
-- **Pinned Prospects** — star icon on pipeline rows, pinned section at top of Pipeline View
-
-**Leadership Dashboard — partial gaps:**
-- Top Referrers panel (referrer name, referral count, pipeline value, funded value)
-- Red Flags panel (stale/overdue prospects at a glance with green "Healthy" empty state)
-- AUM progress bar vs. $105M target (current V1 hardcoded at $10M)
-- Ken partial-access view (Source Attribution + Top Referrers only for marketing role)
-
-**Admin Panel — unbuilt tabs:**
-- Role Templates management (define permission sets at template level)
-- Pipeline Stage Config (edit names, idle thresholds, ordering)
-- Activity Type Management (add/remove/rename)
-- Data Hygiene (merge duplicate People, Organizations)
-- System Settings (AUM baseline/target, default rep, company name)
-
-**Other:**
-- **Last Viewed Bar** — persistent most-recent prospect bar across all screens
-- **Keyboard shortcuts** — N, L, /, arrow keys, Enter, S, P, Esc, ? overlay
-- **Duplicate detection** — autocomplete-or-create on prospect Full Name
-- **Create Prospect from People page** — currently only accessible from dashboard
-- **Zoho provider** (`lib/providers/zoho.ts`) — IT team builds this
-- **Daily overdue email** — scheduled notification to Chad
-- **Smart detection re-test** — `detectActivityType()` code is correct; worth confirming in browser
+**Deferred to future releases:**
+- Pinned Prospects (pipeline star/pin)
+- Keyboard shortcuts (N, L, /, arrow keys, Enter, Esc)
+- Duplicate detection (autocomplete-or-create on prospect Full Name)
+- Create Prospect from People page (currently only from Dashboard)
+- People Directory Organization filter
+- Daily overdue email (scheduled notification to Chad)
 
 ---
 
@@ -371,7 +365,7 @@ From DESIGN-SPEC.md, these features are still pending:
 ```bash
 npm run dev          # Start dev server (mock data)
 npm run build        # Production build
-npx playwright test  # Run E2E tests (53 passing as of 2026-03-19)
+npx playwright test  # Run E2E tests (124 passing)
 ```
 
 Login: `chad` / `password123` (rep), `eric` / `password123` (admin), `ken` / `password123` (marketing)

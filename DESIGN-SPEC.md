@@ -614,7 +614,7 @@ Global search and browse for all people in the system — prospects, referrers, 
 
 **Results** show: Name, Roles (badges), Organization, Contact Type/Company (if external contact), Stage (if prospect). Click → `/person/[id]`. **Sorted alphabetically by name.**
 
-**Filters:** Role (Prospect, Referrer, Related Contact, Funded Investor), Organization. **Default filter: Prospects** (most commonly used view — Chad primarily works with prospects).
+**Filters:** Role (Prospect, Referrer, Related Contact, Funded Investor). **Default filter: Prospects** (most commonly used view — Chad primarily works with prospects). Organization filter deferred to future release.
 
 On mobile, this is the "Search" tab in the bottom navigation. Opens as a full-screen search with large tap targets.
 

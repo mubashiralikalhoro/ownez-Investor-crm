@@ -18,8 +18,10 @@ Custom Next.js CRM for OwnEZ Capital's HNW investor pipeline. Primary user is Ch
 - **Data:** Mock provider (`lib/providers/mock.ts`, in-memory, `globalThis` singleton) for V1; Zoho CRM for V2
 - **Single abstraction point:** `lib/data.ts` — UI never calls Zoho directly
 - **Dev server:** `npm run dev` (mock data by default)
-- **E2E tests:** `npx playwright test` (94 tests — run before and after changes)
+- **E2E tests:** `npx playwright test` (124 tests — run before and after changes)
 - **Provider tests:** `npx tsx scripts/test-provider.ts` (33 tests — validates DataService methods directly, no browser)
+- **Live deployment:** https://ownez-crm.vercel.app (auto-deploys from GitHub)
+- **Repository:** https://github.com/ownez-capital/ownez-investor-crm (branch: `phase1/foundation`)
 - **Login:** `chad` / `password123` (rep), `eric` / `password123` (admin), `ken` / `password123` (marketing), `efri` / `password123` (admin)
 
 ## Key design tokens
@@ -34,7 +36,7 @@ Custom Next.js CRM for OwnEZ Capital's HNW investor pipeline. Primary user is Ch
 
 ## Current state (as of 2026-03-19)
 
-**Fully built and working (94 E2E tests passing):**
+**Fully built and working (124 E2E tests passing, 33 provider tests passing):**
 
 - **Auth:** Login, session (JWT cookie), middleware protection, logout
 - **User Menu:** Desktop sidebar avatar-row popover + mobile 4th-tab bottom sheet (sign out from both)
@@ -182,5 +184,5 @@ lib/
 - **Zoho integration** — work on `lib/providers/zoho.ts` per `docs/zoho-provider-guide.md`
 
 Always run tests before and after changes:
-- `npx playwright test` (E2E, 94 tests)
+- `npx playwright test` (E2E, 124 tests)
 - `npx tsx scripts/test-provider.ts` (provider, 33 tests)
