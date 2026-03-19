@@ -246,7 +246,7 @@ export function PipelineTable({ people, users = [], initialRepFilter = "" }: Pip
                   className={`border-b last:border-0 hover:bg-muted/50 transition-colors cursor-pointer group ${quickLogOpen === person.id ? "bg-gold/5" : ""}`}
                 >
                   <td className="px-4 py-3">
-                    <Link href={`/person/${person.id}`} className="font-medium text-navy hover:text-gold transition-colors">
+                    <Link href={`/person/${person.id}?from=pipeline`} className="font-medium text-navy hover:text-gold transition-colors">
                       {person.fullName}
                     </Link>
                   </td>

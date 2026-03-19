@@ -14,10 +14,13 @@ import { Separator } from "@/components/ui/separator";
 
 export default async function PersonDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ from?: string }>;
 }) {
   const { id } = await params;
+  const { from } = await searchParams;
   const session = await getSession();
   const ds = await getDataService();
 
@@ -52,8 +55,11 @@ export default async function PersonDetailPage({
       />
       {/* Back link */}
       <div className="px-3 md:px-8 pt-3 md:pt-6">
-        <Link href="/" className="text-xs text-muted-foreground hover:text-gold transition-colors">
-          &larr; Dashboard
+        <Link
+          href={from === "leadership" ? "/leadership" : from === "pipeline" ? "/pipeline" : from === "people" ? "/people" : "/"}
+          className="text-xs text-muted-foreground hover:text-gold transition-colors"
+        >
+          &larr; {from === "leadership" ? "Leadership" : from === "pipeline" ? "Pipeline" : from === "people" ? "People" : "Dashboard"}
         </Link>
       </div>
 

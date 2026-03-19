@@ -25,7 +25,7 @@ export function DrilldownSheet({ open, onClose, title, prospects, activities }: 
           {prospects && prospects.map((p) => (
             <Link
               key={p.id}
-              href={`/person/${p.id}`}
+              href={`/person/${p.id}?from=leadership`}
               onClick={onClose}
               className="flex items-center justify-between rounded-md px-3 py-2.5 hover:bg-muted transition-colors"
             >
@@ -48,7 +48,7 @@ export function DrilldownSheet({ open, onClose, title, prospects, activities }: 
             <div key={a.id} className="px-3 py-2.5 border-b last:border-0">
               <div className="flex items-center justify-between">
                 <Link
-                  href={`/person/${a.personId}`}
+                  href={`/person/${a.personId}?from=leadership`}
                   onClick={onClose}
                   className="text-sm font-medium text-navy hover:text-gold transition-colors"
                 >
