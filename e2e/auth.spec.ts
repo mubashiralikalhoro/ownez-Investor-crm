@@ -70,3 +70,57 @@ test.describe("Authentication", () => {
     await expect(page).toHaveURL(/\/login/);
   });
 });
+
+// ─── User Menu — Desktop ──────────────────────────────────────────────────────
+
+test.describe("User menu — desktop sidebar", () => {
+  test.beforeEach(async ({ page }) => {
+    await loginAs(page, "chad");
+  });
+
+  test("shows avatar row button in sidebar footer", async ({ page }) => {
+    await expect(
+      page.locator("aside").getByRole("button", { name: "Open user menu" })
+    ).toBeVisible();
+  });
+
+  test("clicking avatar row opens popover with user info and sign out", async ({ page }) => {
+    await page.locator("aside").getByRole("button", { name: "Open user menu" }).click();
+    await expect(page.getByText("Chad Cormier")).toBeVisible();
+    await expect(page.getByText("Rep")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+  });
+
+  test("sign out from popover redirects to login", async ({ page }) => {
+    await page.locator("aside").getByRole("button", { name: "Open user menu" }).click();
+    await page.getByRole("button", { name: "Sign out" }).click();
+    await expect(page).toHaveURL(/\/login/);
+  });
+});
+
+// ─── User Menu — Mobile ───────────────────────────────────────────────────────
+
+test.describe("User menu — mobile nav", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    await loginAs(page, "chad");
+  });
+
+  test("shows user avatar tab in mobile bottom nav", async ({ page }) => {
+    await expect(
+      page.getByRole("button", { name: "Open user menu" })
+    ).toBeVisible();
+  });
+
+  test("tapping user tab opens bottom sheet with user info and sign out", async ({ page }) => {
+    await page.getByRole("button", { name: "Open user menu" }).click();
+    await expect(page.getByText("Chad Cormier")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+  });
+
+  test("sign out from sheet redirects to login", async ({ page }) => {
+    await page.getByRole("button", { name: "Open user menu" }).click();
+    await page.getByRole("button", { name: "Sign out" }).click();
+    await expect(page).toHaveURL(/\/login/);
+  });
+});
