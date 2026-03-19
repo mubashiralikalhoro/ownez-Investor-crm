@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { loginAs } from "./helpers";
 
 test.describe("Authentication", () => {
   test("redirects unauthenticated users to /login", async ({ page }) => {
@@ -86,9 +87,10 @@ test.describe("User menu — desktop sidebar", () => {
 
   test("clicking avatar row opens popover with user info and sign out", async ({ page }) => {
     await page.locator("aside").getByRole("button", { name: "Open user menu" }).click();
-    await expect(page.getByText("Chad Cormier")).toBeVisible();
-    await expect(page.getByText("Rep")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+    const popover = page.locator('[data-slot="popover-content"]');
+    await expect(popover.getByText("Chad Cormier")).toBeVisible();
+    await expect(popover.getByText("Rep", { exact: true })).toBeVisible();
+    await expect(popover.getByRole("button", { name: "Sign out" })).toBeVisible();
   });
 
   test("sign out from popover redirects to login", async ({ page }) => {
