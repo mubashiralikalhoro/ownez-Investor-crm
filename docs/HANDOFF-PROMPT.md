@@ -18,8 +18,9 @@ Custom Next.js CRM for OwnEZ Capital's HNW investor pipeline. Primary user is Ch
 - **Data:** Mock provider (`lib/providers/mock.ts`, in-memory, `globalThis` singleton) for V1; Zoho CRM for V2
 - **Single abstraction point:** `lib/data.ts` — UI never calls Zoho directly
 - **Dev server:** `npm run dev` (mock data by default)
-- **Tests:** `npx playwright test` (E2E tests — run before and after changes)
-- **Login:** `chad` / `password123` (rep), `eric` / `password123` (admin), `ken` / `password123` (marketing)
+- **E2E tests:** `npx playwright test` (94 tests — run before and after changes)
+- **Provider tests:** `npx tsx scripts/test-provider.ts` (33 tests — validates DataService methods directly, no browser)
+- **Login:** `chad` / `password123` (rep), `eric` / `password123` (admin), `ken` / `password123` (marketing), `efri` / `password123` (admin)
 
 ## Key design tokens
 
@@ -49,6 +50,7 @@ Custom Next.js CRM for OwnEZ Capital's HNW investor pipeline. Primary user is Ch
   - Activity timeline (filterable by type)
   - Relationships section (referrer, funding entities, related contacts — all editable inline)
   - Background notes
+  - Contextual back navigation (← Leadership / Pipeline / People / Dashboard depending on where you came from)
 - **Last Viewed Bar** (all screens): persistent bar showing most recently viewed prospect with inline Quick Log
 - **Leadership Dashboard** (`/leadership`): stat column (AUM, Fund Target progress, Funded YTD, Active, Pipeline Value, Meetings with 7/14/30d toggle), Pipeline Funnel, Source ROI Table, Top Referrers, Red Flags, drill-down sheets for all cards/rows. Ken (marketing) sees Source Attribution + Top Referrers only.
 - **Admin Panel** (`/admin`): Users tab (inline edit, role templates, permissions, deactivate with reassign), Lead Sources tab (edit, toggle, reorder, add), Pipeline Stages tab (edit labels + idle thresholds), Activity Types tab (edit, toggle, add new), System Settings tab (fund target, company name)
@@ -171,6 +173,13 @@ lib/
 
 ## First task for this session
 
-1. **Push all changes to GitHub** — commit everything on the current branch (`phase1/foundation`) and push to origin.
-2. **Gap analysis** — compare what's been built against `DESIGN-SPEC.md` to identify what's missing. Present a prioritized list.
-3. **Based on Eric's decision** — continue development using a Ralph Loop (`/ralph-loop`) to complete the next priority items.
+[Replace this section with what you want to work on. Examples:]
+
+- **UI tweaks** — describe what needs fixing/changing
+- **New feature** — describe the feature, reference DESIGN-SPEC.md section
+- **Bug fix** — describe the bug, include screenshots if possible
+- **Zoho integration** — work on `lib/providers/zoho.ts` per `docs/zoho-provider-guide.md`
+
+Always run tests before and after changes:
+- `npx playwright test` (E2E, 94 tests)
+- `npx tsx scripts/test-provider.ts` (provider, 33 tests)
