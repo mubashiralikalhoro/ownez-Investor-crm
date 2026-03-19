@@ -6,20 +6,27 @@ import { Badge } from "@/components/ui/badge";
 import { ChevronUp, ChevronDown } from "lucide-react";
 import { formatCurrency, formatRelativeDate } from "@/lib/format";
 import { STAGE_LABELS, LEAD_SOURCE_LABELS, NEXT_ACTION_TYPES, PIPELINE_STAGES, LEAD_SOURCES } from "@/lib/constants";
-import type { PersonWithComputed, PipelineStage, LeadSource } from "@/lib/types";
+import type { PersonWithComputed, PipelineStage, LeadSource, User } from "@/lib/types";
 
-type SortKey = "fullName" | "organizationName" | "pipelineStage" | "initialInvestmentTarget" | "growthTarget" | "leadSource" | "activityCount" | "daysSinceLastTouch" | "nextActionDetail" | "nextActionDate";
+type SortKey = "fullName" | "organizationName" | "pipelineStage" | "initialInvestmentTarget" | "growthTarget" | "leadSource" | "activityCount" | "daysSinceLastTouch" | "nextActionDetail" | "nextActionDate" | "assignedRepName";
 
 interface PipelineTableProps {
   people: PersonWithComputed[];
+  users?: User[];
+  initialRepFilter?: string;
 }
 
-export function PipelineTable({ people }: PipelineTableProps) {
+export function PipelineTable({ people, users = [], initialRepFilter = "" }: PipelineTableProps) {
   const [sortKey, setSortKey] = useState<SortKey>("nextActionDate");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [stageFilter, setStageFilter] = useState<PipelineStage | "">("");
   const [sourceFilter, setSourceFilter] = useState<LeadSource | "">("");
+  const [repFilter, setRepFilter] = useState<string>(initialRepFilter);
   const [staleOnly, setStaleOnly] = useState(false);
+  const [repPickerOpen, setRepPickerOpen] = useState<string | null>(null);
+  const [localReps, setLocalReps] = useState<Record<string, string | null>>({});
+
+  const reps = users.filter((u) => u.isActive && u.role === "rep");
 
   function handleSort(key: SortKey) {
     if (sortKey === key) {
@@ -30,13 +37,40 @@ export function PipelineTable({ people }: PipelineTableProps) {
     }
   }
 
+  async function reassignRep(personId: string, newRepId: string | null) {
+    await fetch(`/api/persons/${personId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ assignedRepId: newRepId }),
+    });
+    setLocalReps((prev) => ({ ...prev, [personId]: newRepId }));
+    setRepPickerOpen(null);
+  }
+
+  function getEffectiveRepId(person: PersonWithComputed): string | null {
+    return localReps.hasOwnProperty(person.id) ? localReps[person.id] : person.assignedRepId;
+  }
+
+  function getRepName(repId: string | null): string | null {
+    if (!repId) return null;
+    return users.find((u) => u.id === repId)?.fullName ?? null;
+  }
+
   const filtered = useMemo(() => {
     let result = [...people];
     if (stageFilter) result = result.filter((p) => p.pipelineStage === stageFilter);
     if (sourceFilter) result = result.filter((p) => p.leadSource === sourceFilter);
+    if (repFilter === "unassigned") result = result.filter((p) => {
+      const repId = localReps.hasOwnProperty(p.id) ? localReps[p.id] : p.assignedRepId;
+      return repId === null;
+    });
+    else if (repFilter) result = result.filter((p) => {
+      const repId = localReps.hasOwnProperty(p.id) ? localReps[p.id] : p.assignedRepId;
+      return repId === repFilter;
+    });
     if (staleOnly) result = result.filter((p) => p.isStale || p.isOverdue);
     return result;
-  }, [people, stageFilter, sourceFilter, staleOnly]);
+  }, [people, stageFilter, sourceFilter, repFilter, staleOnly, localReps]);
 
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => {
@@ -58,6 +92,7 @@ export function PipelineTable({ people }: PipelineTableProps) {
         case "daysSinceLastTouch": aVal = a.daysSinceLastTouch ?? 999; bVal = b.daysSinceLastTouch ?? 999; break;
         case "nextActionDetail": aVal = a.nextActionDetail ?? ""; bVal = b.nextActionDetail ?? ""; break;
         case "nextActionDate": aVal = a.nextActionDate ?? "9999"; bVal = b.nextActionDate ?? "9999"; break;
+        case "assignedRepName": aVal = a.assignedRepName ?? ""; bVal = b.assignedRepName ?? ""; break;
       }
 
       if (aVal === null && bVal === null) return 0;
@@ -68,7 +103,7 @@ export function PipelineTable({ people }: PipelineTableProps) {
     });
   }, [filtered, sortKey, sortDir]);
 
-  const hasFilters = stageFilter || sourceFilter || staleOnly;
+  const hasFilters = stageFilter || sourceFilter || repFilter || staleOnly;
 
   function SortIcon({ column }: { column: SortKey }) {
     if (sortKey !== column) return null;
@@ -113,6 +148,20 @@ export function PipelineTable({ people }: PipelineTableProps) {
           ))}
         </select>
 
+        {reps.length > 0 && (
+          <select
+            value={repFilter}
+            onChange={(e) => setRepFilter(e.target.value)}
+            className="rounded-md border bg-card px-2.5 py-1.5 text-xs"
+          >
+            <option value="">All Reps</option>
+            <option value="unassigned">Unassigned</option>
+            {reps.map((r) => (
+              <option key={r.id} value={r.id}>{r.fullName}</option>
+            ))}
+          </select>
+        )}
+
         <label className="flex items-center gap-1.5 text-xs">
           <input
             type="checkbox"
@@ -125,7 +174,7 @@ export function PipelineTable({ people }: PipelineTableProps) {
 
         {hasFilters && (
           <button
-            onClick={() => { setStageFilter(""); setSourceFilter(""); setStaleOnly(false); }}
+            onClick={() => { setStageFilter(""); setSourceFilter(""); setRepFilter(""); setStaleOnly(false); }}
             className="rounded-full bg-muted px-3 py-1 text-[10px] font-medium text-muted-foreground hover:bg-muted/80"
           >
             Clear filters
@@ -151,6 +200,7 @@ export function PipelineTable({ people }: PipelineTableProps) {
                 <TH column="leadSource">Source</TH>
                 <TH column="activityCount" className="text-right">Touches</TH>
                 <TH column="daysSinceLastTouch" className="text-right">Days Idle</TH>
+                <TH column="assignedRepName">Rep</TH>
                 <TH column="nextActionDetail">Next Action</TH>
                 <TH column="nextActionDate">Date</TH>
                 <th className="px-4 py-2.5 w-8"></th>
@@ -191,6 +241,47 @@ export function PipelineTable({ people }: PipelineTableProps) {
                     <span className={person.isStale ? "text-alert-red font-medium" : ""}>
                       {person.daysSinceLastTouch ?? "—"}
                     </span>
+                  </td>
+                  <td className="px-4 py-3 text-xs relative">
+                    {reps.length > 0 ? (
+                      <div className="relative">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setRepPickerOpen(repPickerOpen === person.id ? null : person.id); }}
+                          className="flex items-center gap-1 hover:text-gold transition-colors"
+                        >
+                          {getEffectiveRepId(person) ? (
+                            <span className="text-muted-foreground">{getRepName(getEffectiveRepId(person))}</span>
+                          ) : (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-100 text-red-600">Unassigned</span>
+                          )}
+                        </button>
+                        {repPickerOpen === person.id && (
+                          <div className="absolute z-10 top-full left-0 mt-1 w-40 rounded-md border bg-card shadow-md py-1">
+                            <button
+                              onClick={() => reassignRep(person.id, null)}
+                              className="w-full text-left px-3 py-1.5 text-xs text-red-600 hover:bg-muted/50"
+                            >
+                              Unassign
+                            </button>
+                            {reps.map((r) => (
+                              <button
+                                key={r.id}
+                                onClick={() => reassignRep(person.id, r.id)}
+                                className="w-full text-left px-3 py-1.5 text-xs text-navy hover:bg-muted/50"
+                              >
+                                {r.fullName}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-muted-foreground">
+                        {getEffectiveRepId(person) ? getRepName(getEffectiveRepId(person)) : (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-100 text-red-600">Unassigned</span>
+                        )}
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-xs text-muted-foreground max-w-[200px] truncate">
                     {person.nextActionDetail ?? "—"}

@@ -3,8 +3,10 @@ import type {
   ReferrerLink, RelatedContactLink, PersonWithComputed, DashboardStats,
   PeopleFilters, ActivityFilters, RecentActivityFilters, RecentActivityEntry,
   DataService, PipelineStage,
+  LeadershipStats, FunnelStage, SourceROIRow, DrilldownProspectFilter,
+  DrilldownActivityFilter, LeadSourceConfig, UserPermissions,
 } from "../types";
-import { ACTIVE_PIPELINE_STAGES, COMMITTED_STAGES, TOUCH_ACTIVITY_TYPES } from "../constants";
+import { ACTIVE_PIPELINE_STAGES, COMMITTED_STAGES, TOUCH_ACTIVITY_TYPES, LEAD_SOURCES, PIPELINE_STAGES } from "../constants";
 import { computeDaysSinceLastTouch, computeIsStale, computeIsOverdue } from "../stale";
 import { getTodayCT } from "../format";
 import { hashSync } from "bcryptjs";
@@ -14,12 +16,22 @@ const PW_HASH = hashSync("password123", 10);
 
 // ─── Users ───
 // Note: arrays are `let` so resetData() can restore them to initial state
-const users: User[] = [
+let users: User[] = [
   { id: "u-chad", username: "chad", fullName: "Chad Cormier", role: "rep", isActive: true, passwordHash: PW_HASH },
   { id: "u-ken", username: "ken", fullName: "Ken Warsaw", role: "marketing", isActive: true, passwordHash: PW_HASH },
   { id: "u-eric", username: "eric", fullName: "Eric Gewirtzman", role: "admin", isActive: true, passwordHash: PW_HASH },
   { id: "u-efri", username: "efri", fullName: "Efri Argaman", role: "admin", isActive: true, passwordHash: PW_HASH },
 ];
+
+// ─── Lead Source Configs (seeded from constants) ───
+let leadSourceConfigs: LeadSourceConfig[] = LEAD_SOURCES.map((s, i) => ({
+  key: s.key,
+  label: s.label,
+  order: i,
+  isActive: true,
+}));
+
+const INITIAL_LEAD_SOURCE_CONFIGS = JSON.stringify(leadSourceConfigs);
 
 // ─── Organizations ───
 let organizations: Organization[] = [
@@ -346,6 +358,7 @@ const INITIAL_FUNDED_INVESTMENTS = JSON.stringify(fundedInvestments);
 const INITIAL_ACTIVITIES = JSON.stringify(activities);
 const INITIAL_REFERRER_LINKS = JSON.stringify(referrerLinks);
 const INITIAL_RELATED_CONTACT_LINKS = JSON.stringify(relatedContactLinks);
+const INITIAL_USERS = JSON.stringify(users);
 
 function resetMockData() {
   organizations = JSON.parse(INITIAL_ORGANIZATIONS);
@@ -355,6 +368,8 @@ function resetMockData() {
   activities = JSON.parse(INITIAL_ACTIVITIES);
   referrerLinks = JSON.parse(INITIAL_REFERRER_LINKS);
   relatedContactLinks = JSON.parse(INITIAL_RELATED_CONTACT_LINKS);
+  users = JSON.parse(INITIAL_USERS);
+  leadSourceConfigs = JSON.parse(INITIAL_LEAD_SOURCE_CONFIGS);
 }
 
 // ─── Helper: enrich person with computed fields ───
@@ -412,6 +427,9 @@ export function createMockDataService(): DataService {
       }
       if (filters?.assignedRepId) {
         result = result.filter((p) => p.assignedRepId === filters.assignedRepId);
+      }
+      if (filters?.assignedRepUnassigned) {
+        result = result.filter((p) => p.assignedRepId === null);
       }
       if (filters?.staleOnly) {
         result = result.filter((p) => p.isStale || p.isOverdue);
@@ -669,6 +687,174 @@ export function createMockDataService(): DataService {
         }
       }
       return counts;
+    },
+
+    // ─── Leadership ───
+    async getLeadershipStats(): Promise<LeadershipStats> {
+      const today = getTodayCT();
+      const yearStart = today.substring(0, 4) + "-01-01";
+      const aumRaised = fundedInvestments.reduce((sum, fi) => sum + fi.amountInvested, 0);
+      const fundedYTDCount = fundedInvestments.filter((fi) => fi.investmentDate >= yearStart).length;
+      const activeProspects = people.filter(
+        (p) => p.roles.includes("prospect") && p.pipelineStage && ACTIVE_PIPELINE_STAGES.includes(p.pipelineStage)
+      );
+      return {
+        aumRaised,
+        fundTarget: 10_000_000,
+        fundedYTDCount,
+        activeCount: activeProspects.length,
+        pipelineValue: activeProspects.reduce((sum, p) => sum + (p.initialInvestmentTarget ?? 0), 0),
+      };
+    },
+
+    async getMeetingsCount(days: number): Promise<number> {
+      const today = getTodayCT();
+      const cutoff = new Date(new Date(today + "T00:00:00").getTime() - days * 24 * 60 * 60 * 1000)
+        .toISOString().split("T")[0];
+      return activities.filter((a) => a.activityType === "meeting" && a.date >= cutoff).length;
+    },
+
+    async getFunnelData(): Promise<FunnelStage[]> {
+      const allStages = [...ACTIVE_PIPELINE_STAGES, "funded" as PipelineStage];
+      return allStages.map((stage) => {
+        const stageConfig = PIPELINE_STAGES.find((s) => s.key === stage);
+        const stageProspects = people.filter(
+          (p) => (p.roles.includes("prospect") || p.roles.includes("funded_investor")) && p.pipelineStage === stage
+        );
+        return {
+          stage,
+          label: stageConfig?.label ?? stage,
+          count: stageProspects.length,
+          totalValue: stageProspects.reduce((sum, p) => sum + (p.initialInvestmentTarget ?? 0), 0),
+        };
+      });
+    },
+
+    async getSourceROI(): Promise<SourceROIRow[]> {
+      const allProspects = people.filter((p) => p.roles.includes("prospect") || p.roles.includes("funded_investor"));
+      const sourceCounts: Record<string, { prospects: number; funded: number; aum: number }> = {};
+
+      for (const p of allProspects) {
+        const src = p.leadSource ?? "other";
+        if (!sourceCounts[src]) sourceCounts[src] = { prospects: 0, funded: 0, aum: 0 };
+        sourceCounts[src].prospects++;
+        if (p.pipelineStage === "funded") {
+          sourceCounts[src].funded++;
+          const inv = fundedInvestments.filter((fi) => fi.personId === p.id);
+          sourceCounts[src].aum += inv.reduce((sum, fi) => sum + fi.amountInvested, 0);
+        }
+      }
+
+      const lsLabels: Record<string, string> = Object.fromEntries(
+        leadSourceConfigs.map((s) => [s.key, s.label])
+      );
+
+      return Object.entries(sourceCounts)
+        .map(([source, data]) => ({
+          source,
+          label: lsLabels[source] ?? source,
+          prospectCount: data.prospects,
+          fundedCount: data.funded,
+          aum: data.aum,
+          conversionPct: data.prospects > 0 ? Math.round((data.funded / data.prospects) * 100) : 0,
+        }))
+        .sort((a, b) => b.aum - a.aum);
+    },
+
+    async getDrilldownProspects(filter: DrilldownProspectFilter): Promise<PersonWithComputed[]> {
+      const today = getTodayCT();
+      const yearStart = today.substring(0, 4) + "-01-01";
+      let result = people.filter((p) => p.roles.includes("prospect") || p.roles.includes("funded_investor"));
+
+      if (filter.stage) {
+        result = result.filter((p) => p.pipelineStage === filter.stage);
+      }
+      if (filter.leadSource) {
+        result = result.filter((p) => p.leadSource === filter.leadSource);
+      }
+      if (filter.fundedYTD) {
+        const ytdPersonIds = new Set(
+          fundedInvestments.filter((fi) => fi.investmentDate >= yearStart).map((fi) => fi.personId)
+        );
+        result = result.filter((p) => ytdPersonIds.has(p.id));
+      }
+      if (filter.active) {
+        result = result.filter((p) => p.pipelineStage && ACTIVE_PIPELINE_STAGES.includes(p.pipelineStage));
+      }
+
+      return result.map(enrichPerson);
+    },
+
+    async getDrilldownActivities(filter: DrilldownActivityFilter): Promise<RecentActivityEntry[]> {
+      const today = getTodayCT();
+      const cutoff = new Date(new Date(today + "T00:00:00").getTime() - filter.days * 24 * 60 * 60 * 1000)
+        .toISOString().split("T")[0];
+
+      return activities
+        .filter((a) => a.activityType === filter.activityType && a.date >= cutoff)
+        .sort((a, b) => b.date.localeCompare(a.date))
+        .map((a) => {
+          const person = people.find((p) => p.id === a.personId);
+          return { ...a, personName: person?.fullName ?? "Unknown", personId: a.personId };
+        });
+    },
+
+    // ─── Lead Sources ───
+    async getLeadSources(opts?: { includeInactive?: boolean }): Promise<LeadSourceConfig[]> {
+      const sorted = [...leadSourceConfigs].sort((a, b) => a.order - b.order);
+      return opts?.includeInactive ? sorted : sorted.filter((s) => s.isActive);
+    },
+
+    async createLeadSource(data: { label: string }): Promise<LeadSourceConfig> {
+      const key = data.label
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_|_$/g, "");
+      const order = leadSourceConfigs.length;
+      const newSource: LeadSourceConfig = { key, label: data.label, order, isActive: true };
+      leadSourceConfigs.push(newSource);
+      return newSource;
+    },
+
+    async updateLeadSource(key: string, data: Partial<Pick<LeadSourceConfig, "label" | "isActive">>): Promise<LeadSourceConfig> {
+      const idx = leadSourceConfigs.findIndex((s) => s.key === key);
+      if (idx === -1) throw new Error(`Lead source not found: ${key}`);
+      leadSourceConfigs[idx] = { ...leadSourceConfigs[idx], ...data };
+      return leadSourceConfigs[idx];
+    },
+
+    async reorderLeadSources(keys: string[]): Promise<void> {
+      keys.forEach((key, i) => {
+        const src = leadSourceConfigs.find((s) => s.key === key);
+        if (src) src.order = i;
+      });
+    },
+
+    // ─── Admin — Users ───
+    async updateUserPermissions(userId: string, permissions: UserPermissions): Promise<User> {
+      const idx = users.findIndex((u) => u.id === userId);
+      if (idx === -1) throw new Error(`User not found: ${userId}`);
+      users[idx] = { ...users[idx], permissions };
+      const { passwordHash: _, ...safe } = users[idx];
+      return { ...safe, passwordHash: "" };
+    },
+
+    async deactivateUser(userId: string, reassignToId?: string): Promise<void> {
+      const idx = users.findIndex((u) => u.id === userId);
+      if (idx === -1) throw new Error(`User not found: ${userId}`);
+      users[idx] = { ...users[idx], isActive: false };
+      // Reassign prospects
+      for (const p of people) {
+        if (p.assignedRepId === userId) {
+          p.assignedRepId = reassignToId ?? null;
+        }
+      }
+    },
+
+    async getUnassignedProspects(): Promise<PersonWithComputed[]> {
+      return people
+        .filter((p) => p.roles.includes("prospect") && p.assignedRepId === null && p.pipelineStage && ACTIVE_PIPELINE_STAGES.includes(p.pipelineStage))
+        .map(enrichPerson);
     },
 
     // ─── Testing ───

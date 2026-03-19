@@ -4,6 +4,25 @@ import { getDataService } from "@/lib/data";
 import { requireSession } from "@/lib/auth";
 import { getTodayCT } from "@/lib/format";
 
+export async function GET(request: NextRequest) {
+  try {
+    await requireSession();
+    const { searchParams } = new URL(request.url);
+    const assignedRep = searchParams.get("assignedRep");
+    const ds = await getDataService();
+    const people = await ds.getPeople({
+      roles: ["prospect"],
+      ...(assignedRep === "unassigned" ? { assignedRepUnassigned: true } : {}),
+      ...(assignedRep && assignedRep !== "unassigned" ? { assignedRepId: assignedRep } : {}),
+    });
+    return NextResponse.json(people);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Something went wrong";
+    const status = message === "Unauthorized" ? 401 : 500;
+    return NextResponse.json({ error: message }, { status });
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const session = await requireSession();

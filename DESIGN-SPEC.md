@@ -1,8 +1,8 @@
 # OwnEZ Capital — HNW Investor CRM
 ## Design Specification
 
-**Version:** 1.1
-**Date:** 2026-03-18
+**Version:** 1.2
+**Date:** 2026-03-19
 **Author:** Eric Gewirtzman + Claude
 **Status:** Draft — pending review
 
@@ -309,15 +309,15 @@ These run in Zoho, not in the frontend:
 
 ### 6.1 Routes
 
-| Route | View | Users | Purpose |
-|---|---|---|---|
-| `/` | Chad's Daily Dashboard | Chad, Ken | Morning briefing |
-| `/pipeline` | Pipeline View | Chad, Ken | Full workhorse table |
-| `/person/[id]` | Person Detail | Chad, Ken | Edit record, log activity |
-| `/people` | People Directory | All | Search all people (prospects, contacts, referrers) |
-| `/leadership` | Leadership Dashboard | Eric, Efri, Ken (partial) | AUM, funnel, source ROI. Ken sees Source Attribution + Top Referrers only. |
-| `/admin` | Admin Panel | Eric, Efri | System configuration |
-| `/login` | Login | All | Auth gate |
+| Route | View | Users | Purpose | Status |
+|---|---|---|---|---|
+| `/` | Chad's Daily Dashboard | Chad, Ken | Morning briefing | ✅ Built |
+| `/pipeline` | Pipeline View | Chad, Ken | Full workhorse table | ✅ Built |
+| `/person/[id]` | Person Detail | Chad, Ken | Edit record, log activity | ✅ Built |
+| `/people` | People Directory | All | Search all people (prospects, contacts, referrers) | ✅ Built |
+| `/leadership` | Leadership Dashboard | Eric, Efri, Ken (partial) | AUM, funnel, source ROI. Ken sees Source Attribution + Top Referrers only. | ✅ Built |
+| `/admin` | Admin Panel | Eric, Efri | System configuration | ✅ Built (Users + Lead Sources tabs) |
+| `/login` | Login | All | Auth gate | ✅ Built |
 
 **Mobile "Search" tab** maps to `/people` — a global search overlay that searches across all People regardless of role.
 
@@ -550,22 +550,49 @@ Assigned Rep is visible but only editable by Admins (see Section 5.6). Collabora
 
 ### 6.5 Leadership Dashboard (`/leadership`)
 
-Eric's view. Read-only. Ken has partial access — sees only Source Attribution and Top Referrers sections (his campaign performance data). All other sections (AUM bar, Funnel, Red Flags) are Admin-only.
+> **Status: ✅ Implemented** (2026-03-18). See `docs/superpowers/specs/2026-03-18-leadership-admin-design.md` for the approved design spec.
 
-**Row 1: AUM Progress Bar**
-Horizontal bar: $60M baseline → current ($60M + funded from system) → $105M target. Shows % complete and dollar amount. Both endpoints labeled. Baseline ($60M) and target ($105M) are configurable in admin.
+Eric's view. Read-only. Roles allowed: `marketing`, `admin`, or any user with `canViewLeadership` permission override.
 
-**Row 2 Left: Funnel Chart**
-Horizontal bar chart. Stages on Y-axis, count on X-axis. Green for late-stage (Soft Commit → KYC), gray for early stage.
+**Layout:** Two-column grid — 115px stat column on the left, right panel occupying the rest. Max-width 720px, centered.
 
-**Row 2 Right: Source Attribution Table**
-Columns: Lead Source, Count, Total Initial Investment ($), Total Funded ($). Sorted by Total Initial Investment descending.
+#### Stat Column (left)
 
-**Row 3 Left: Top Referrers**
-Table: Referrer Name, Referrals Count, Pipeline Value, Funded Value. Shows the relationship network that's driving capital.
+Six stacked KPI cards, each clickable to open a drill-down slide-out sheet (right side):
 
-**Row 3 Right: Red Flags Panel**
-Stale Flag = true OR overdue. Investor name, Stage, Days Idle, Next Action. Green "Pipeline Healthy" indicator when empty.
+| Card | Value | Drill-down |
+|---|---|---|
+| AUM Raised | Sum of all FundedInvestment.amountInvested | List of funded investors: name, entity, amount, date |
+| Fund Target | Progress bar toward $10M target (V1 hardcoded) | Same as AUM Raised |
+| Funded YTD | Count of FundedInvestments in current calendar year | Funded investors this year |
+| Active | Count of prospects in active pipeline stages | Active prospects: name, stage, target, days idle |
+| Pipeline Value | Sum of initialInvestmentTarget for active prospects | Same list as Active |
+| Meetings | Count of meeting-type activities (7d/14d/30d toggle) | Meeting list: prospect name, date, detail |
+
+The Meetings card has a `7d / 14d / 30d` pill toggle; selected period highlighted in gold, default 30d.
+
+#### Right Panel: Pipeline Funnel
+
+Tapering funnel. One row per active pipeline stage (in order) plus Funded row at the bottom.
+
+- Each row: gold background (fading lighter per stage), stage label + count + sum of targets
+- Width narrows per stage: 100% → 90% → 78% → ... → 30%; Funded row is green
+- Chevron separators between rows
+- All rows clickable → drill-down sheet with prospects in that stage
+
+#### Right Panel: Source ROI Table
+
+Columns: Source, Prospects, Funded, AUM, Conv%. Sorted by AUM descending. Click a row → drill-down sheet with all prospects from that source.
+
+#### Drill-down Sheet
+
+Standard `Sheet` component slides in from the right. Shows header context label ("Pitch · 2 prospects") and a list of prospects or activities with clickable links to `/person/[id]`.
+
+**Original spec intent not yet implemented:**
+- AUM progress bar vs. $105M target (current build uses $10M V1 hardcoded)
+- Top Referrers panel
+- Red Flags panel (stale/overdue prospects at a glance)
+- Ken partial-access view (Source Attribution + Top Referrers only)
 
 ### 6.6 People Directory (`/people`)
 
@@ -627,16 +654,37 @@ If the creator is not the Assigned Rep (e.g., Ken creates and assigns to Chad), 
 
 ### 6.8 Admin Panel (`/admin`)
 
-Eric/Efri only.
+> **Status: ✅ Implemented (Users + Lead Sources tabs)** (2026-03-18). See `docs/superpowers/specs/2026-03-18-leadership-admin-design.md` for the approved design spec.
 
-**Sections:**
-1. **User Management** — add/edit/deactivate users, assign role template, per-user permission overrides
-2. **Role Templates** — define permission sets (Rep, Marketing, Admin). Each permission has three states per user: Inherited (from role), Override: Allow, Override: Deny
-3. **Pipeline Stage Config** — edit stage names, idle thresholds, ordering
-4. **Lead Source Management** — add/remove/rename (autocomplete-or-create aware)
-5. **Activity Type Management** — add/remove/rename
-6. **Data Hygiene** — merge duplicate People, Organizations, Referrers. Auto-detection of similar entries (fuzzy match). One-click merge with cascade to all linked records. Rename with global update.
-7. **System Settings** — AUM baseline ($60M), AUM target ($105M), default rep assignment, company name
+Role: `admin` only, or any user with `canAccessAdmin` permission override.
+
+**Layout:** Page header "Admin", two tabs: **Users** | **Lead Sources**.
+
+#### Users Tab (✅ Built)
+
+Table columns: Name/username, Role badge, Status (Active/Inactive). Clicking a row opens an inline edit panel below (gold border highlight).
+
+**Inline Edit Panel:**
+- **Role Template** — pill selector: Rep / Marketing / Admin
+- **Permission Overrides** — toggle switches with "Role default: on/off" label per permission:
+  - Pages: Leadership Dashboard (`canViewLeadership`), Admin Panel (`canAccessAdmin`)
+  - Actions: Reassign Prospects, View All Prospects, Mark Prospect Dead
+- **Deactivate** — button at bottom; shows a "Reassign open prospects to:" picker before confirming if user has active prospects
+
+#### Lead Sources Tab (✅ Built)
+
+List of all current lead sources. Per-row controls:
+- Inline label editing (click to edit, Enter to save)
+- Active/Inactive toggle (hides from picker UI when inactive)
+- Drag-to-reorder (persistent order used in chip picker)
+- **+ New Lead Source** button at bottom: inline add form
+
+**Sections not yet built (planned):**
+- Role Templates — define permission sets at the template level
+- Pipeline Stage Config — edit stage names, idle thresholds, ordering
+- Activity Type Management — add/remove/rename
+- Data Hygiene — merge duplicates
+- System Settings — AUM baseline/target, default rep, company name
 
 ### 6.9 Date Quick-Pick Chips
 
@@ -726,6 +774,23 @@ V1: User authentication (username/password/role) lives in the `USERS` env var. P
 - Session: httpOnly encrypted cookie
 - Middleware checks session on every route, redirects to `/login` if missing
 - Role from session determines UI capabilities
+
+### 8.3 User Menu & Logout (✅ Implemented 2026-03-19)
+
+The session user is identified at the bottom of every screen — never hidden.
+
+**Desktop sidebar (all screen widths ≥ md):**
+Avatar row at the bottom of the sidebar. Shows initials circle + first name + chevron. Clicking opens a Base UI `Popover` above the row with full name, role badge, and "Sign out" button.
+
+**Mobile bottom nav:**
+A 4th tab in the mobile bottom navigation bar shows the user's initials. Tapping opens a `Sheet` from the bottom with full name, role badge, and "Sign out" button.
+
+**Logout flow:** Both paths call `POST /api/auth/logout`, then redirect to `/login`.
+
+**Components:**
+- `components/sidebar-user-menu.tsx` — desktop avatar row + popover
+- `components/sidebar-nav.tsx` — mobile MobileNav includes the 4th user tab + sheet
+- Deleted: `components/logout-button.tsx` (logic inlined into the above)
 
 ### 8.2 V2 Migration: Zoho OAuth
 
@@ -945,8 +1010,27 @@ interface DataService {
 
   // Dashboard aggregations
   getDashboardStats(): Promise<DashboardStats>
+
+  // Leadership Dashboard
   getLeadershipStats(): Promise<LeadershipStats>
+  // Returns: { aumRaised, fundTarget, fundedYTDCount, activeCount, pipelineValue }
+  getMeetingsCount(days: number): Promise<number>
+  // Count of meeting-type activities in past N days
+  getFunnelData(): Promise<FunnelStage[]>
+  // Per active stage: { stage, label, count, totalValue }
+  getSourceROI(): Promise<SourceROIRow[]>
+  // Per lead source: { source, label, prospectCount, fundedCount, aum, conversionPct }
+  getDrilldownProspects(filter: DrilldownProspectFilter): Promise<PersonWithComputed[]>
+  // filter: { stage?, leadSource?, fundedYTD?, active? }
+  getDrilldownActivities(filter: DrilldownActivityFilter): Promise<RecentActivityEntry[]>
+  // filter: { activityType, days }
   getTopReferrers(limit?: number): Promise<ReferrerStats[]>
+
+  // Lead Source management (Admin panel)
+  getLeadSources(): Promise<LeadSource[]>
+  // Returns full list including order, active flag, label
+  updateLeadSource(key: string, data: UpdateLeadSourceInput): Promise<LeadSource>
+  reorderLeadSources(keys: string[]): Promise<void>
 
   // Reports
   getPipelineSummary(filters?: ReportFilters): Promise<PipelineReportRow[]>
@@ -957,9 +1041,12 @@ interface DataService {
 
   // Users & Auth
   getUsers(): Promise<User[]>
+  // Returns all users with role, status, permissions (extended for Admin panel)
   createUser(data: CreateUserInput): Promise<User>
   updateUser(id: string, data: UpdateUserInput): Promise<User>
-  deactivateUser(id: string): Promise<void>
+  // data: { role?, permissions?: Partial<UserPermissions> }
+  deactivateUser(id: string, reassignToId?: string): Promise<void>
+  // reassignToId: if provided, reassigns all open prospects to this user before deactivating
   getUserPermissions(userId: string): Promise<ResolvedPermissions> // role + overrides merged
 
   // Picklist administration

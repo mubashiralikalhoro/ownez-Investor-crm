@@ -1190,6 +1190,194 @@ The Zoho provider's `createActivity` already handles the `reassignment` activity
 
 ---
 
+---
+
+### 4.z New Methods — Added 2026-03-18/19 (Leadership Dashboard + Admin Panel)
+
+These methods were added to the DataService interface during the Leadership/Admin sessions. All Zoho provider implementations must include them.
+
+---
+
+#### `getLeadershipStats(): Promise<LeadershipStats>`
+
+Returns fund-level KPIs for the Leadership Dashboard stat column.
+
+```typescript
+interface LeadershipStats {
+  aumRaised: number;       // Sum of all FundedInvestment.amountInvested
+  fundTarget: number;      // V1: hardcoded $10M; future: from SystemConfig
+  fundedYTDCount: number;  // Count of FundedInvestments in current calendar year
+  activeCount: number;     // Count of prospects in active pipeline stages
+  pipelineValue: number;   // Sum of initialInvestmentTarget for active prospects
+}
+```
+
+**Zoho implementation:** Use COQL queries (or fallback to full-list aggregation if COQL aggregates aren't supported). Same pattern as `getDashboardStats()` — see Section 4.8 for COQL examples.
+
+---
+
+#### `getMeetingsCount(days: number): Promise<number>`
+
+Returns count of `meeting`-type activities in the past `days` days. Used by the Meetings card with 7d/14d/30d toggle.
+
+**Zoho implementation:**
+```typescript
+async getMeetingsCount(days: number): Promise<number> {
+  const since = new Date();
+  since.setDate(since.getDate() - days);
+  const sinceStr = since.toISOString().split("T")[0];
+  const result = await zohoFetch("/coql", {
+    method: "POST",
+    body: JSON.stringify({
+      select_query: `SELECT COUNT(id) as count FROM Activity_Logs WHERE Activity_Type = 'Meeting' AND Activity_Date >= '${sinceStr}'`
+    })
+  });
+  return result.data?.[0]?.count ?? 0;
+}
+```
+
+---
+
+#### `getFunnelData(): Promise<FunnelStage[]>`
+
+Returns per-stage counts and dollar totals for the Pipeline Funnel visualization.
+
+```typescript
+interface FunnelStage {
+  stage: string;       // stage key (e.g., "pitch")
+  label: string;       // display label (e.g., "Pitch")
+  count: number;       // number of prospects in this stage
+  totalValue: number;  // sum of initialInvestmentTarget for prospects in this stage
+}
+```
+
+**Zoho implementation:** Fetch all active prospects and group by stage in code (simplest), or use COQL GROUP BY:
+```sql
+SELECT Pipeline_Stage, COUNT(id) as count, SUM(Initial_Investment_Target) as total
+FROM Contacts
+WHERE Pipeline_Stage NOT IN ('Funded', 'Nurture', 'Dead / Lost')
+GROUP BY Pipeline_Stage
+```
+
+---
+
+#### `getSourceROI(): Promise<SourceROIRow[]>`
+
+Returns per-source attribution stats for the Source ROI Table.
+
+```typescript
+interface SourceROIRow {
+  source: string;         // source key (e.g., "cpa_referral")
+  label: string;          // display label
+  prospectCount: number;  // total prospects with this source
+  fundedCount: number;    // how many are Funded
+  aum: number;            // sum of amountInvested for funded prospects from this source
+  conversionPct: number;  // fundedCount / prospectCount * 100
+}
+```
+
+**Zoho implementation:** Fetch all people with roles=Prospect. For each lead source group, count prospects and cross-reference with FundedInvestments. Can be done in code after fetching both lists.
+
+---
+
+#### `getDrilldownProspects(filter: DrilldownProspectFilter): Promise<PersonWithComputed[]>`
+
+Returns the filtered prospect list for drill-down sheets in the Leadership Dashboard.
+
+```typescript
+interface DrilldownProspectFilter {
+  stage?: string;        // filter by pipeline stage
+  leadSource?: string;   // filter by lead source key
+  fundedYTD?: boolean;   // only FundedInvestments created in current calendar year
+  active?: boolean;      // only active pipeline stages
+}
+```
+
+**Zoho implementation:** Filter from `getPeople()` results — no separate Zoho API call needed.
+
+---
+
+#### `getDrilldownActivities(filter: DrilldownActivityFilter): Promise<RecentActivityEntry[]>`
+
+Returns filtered activities for the Meetings drill-down sheet.
+
+```typescript
+interface DrilldownActivityFilter {
+  activityType: string;  // e.g., "meeting"
+  days: number;          // look back N days
+}
+```
+
+**Zoho implementation:** Query Activity_Logs module filtered by `Activity_Type` and `Activity_Date >= (today - days)`.
+
+---
+
+#### `updateUser(id: string, data: UpdateUserInput): Promise<User>`
+
+Updates a user's role and/or permission overrides. Called from the Admin Panel Users tab.
+
+```typescript
+interface UpdateUserInput {
+  role?: UserRole;
+  permissions?: Partial<UserPermissions>;
+}
+```
+
+**V1 note:** In V1 (env-var auth), user roles and permissions are stored in memory in the mock provider. The Zoho provider should store permission overrides in a Zoho custom module (e.g., `User_Permissions`) linked to the Zoho user ID. Role changes in Zoho would map to Zoho CRM profiles.
+
+---
+
+#### `deactivateUser(id: string, reassignToId?: string): Promise<void>`
+
+Deactivates a user. If `reassignToId` is provided, all open prospects owned by this user are reassigned before deactivation.
+
+**Zoho implementation:**
+1. If `reassignToId` provided: `updatePerson` for all prospects where `assignedRepId === id` → set to `reassignToId`
+2. Deactivate user in Zoho: `PUT /users/{id}` with `status: "inactive"`
+
+---
+
+#### `getLeadSources(): Promise<LeadSource[]>`
+
+Returns the full lead source list with order, active flag, and labels. Used by the Admin Panel Lead Sources tab.
+
+```typescript
+interface LeadSource {
+  key: string;      // internal key (e.g., "cpa_referral")
+  label: string;    // display label (e.g., "CPA Referral")
+  category: string; // chip category (Referral, Network, Event, Direct)
+  isActive: boolean;
+  order: number;    // display order (0-indexed)
+}
+```
+
+**V1 note:** In V1 (mock provider), lead sources are stored in memory extending `lib/constants.ts`. The Zoho provider should read/write these from a Zoho custom module (e.g., `Lead_Source_Config`) and keep Zoho picklist values in sync when labels or active states change.
+
+---
+
+#### `updateLeadSource(key: string, data: UpdateLeadSourceInput): Promise<LeadSource>`
+
+Updates a lead source's label and/or active state.
+
+```typescript
+interface UpdateLeadSourceInput {
+  label?: string;
+  isActive?: boolean;
+}
+```
+
+**Zoho note:** If the label changes, the Zoho `Lead_Source` picklist value must be updated as well — or map internally from key to label so the Zoho picklist value stays stable while the frontend label can change freely.
+
+---
+
+#### `reorderLeadSources(keys: string[]): Promise<void>`
+
+Persists a new display order for lead sources. `keys` is the full ordered array of all lead source keys.
+
+**V1:** Updates the in-memory order in the mock provider. **Zoho:** Writes order values to the `Lead_Source_Config` module records.
+
+---
+
 ## 5. Auto-Synced Activities (Telephony + Email)
 
 ### Reading Call Logs from Zoho Telephony

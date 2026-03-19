@@ -1,6 +1,6 @@
 # OwnEZ CRM — Development Handoff
 
-## Project State (as of 2026-03-18, updated post-person-detail-completion session)
+## Project State (as of 2026-03-19, updated post-leadership-admin-logout session)
 
 Custom Next.js CRM frontend for OwnEZ Capital's HNW investor pipeline. Uses Zoho CRM as the database via API. Currently running with mock data provider — all features work without Zoho connection.
 
@@ -13,6 +13,67 @@ Custom Next.js CRM frontend for OwnEZ Capital's HNW investor pipeline. Uses Zoho
 - Dashboard, Pipeline view, Person Detail, People directory
 - Quick Log with smart activity type detection (`lib/smart-detection.ts`)
 - 55 Playwright E2E tests — all passing at start of this session
+
+### Leadership Dashboard + Admin Panel (2026-03-18 session)
+
+All built via Ralph Loop. 39 Playwright E2E tests pass (`e2e/leadership.spec.ts`, `e2e/admin.spec.ts`).
+
+#### Leadership Dashboard (`/leadership`)
+
+Two-column layout: 115px stat column + right panel. Roles: `marketing`, `admin`, or `canViewLeadership` override.
+
+**Stat Column** — 6 KPI cards (all clickable → drill-down sheet):
+- AUM Raised — sum of all FundedInvestment.amountInvested
+- Fund Target — progress bar toward $10M V1 target
+- Funded YTD — count of FundedInvestments in current year
+- Active — count of prospects in active pipeline stages
+- Pipeline Value — sum of initialInvestmentTarget for active
+- Meetings — count with 7d/14d/30d toggle (default 30d)
+
+**Right Panel:**
+- Pipeline Funnel — tapering rows per stage (gold fading, green for Funded), count + sum, clickable drill-down
+- Source ROI Table — Source / Prospects / Funded / AUM / Conv%, sorted by AUM
+
+**Drill-down Sheet** — slides in from right, lists prospects or activities with links to `/person/[id]`
+
+**New components:** `components/leadership/stat-column.tsx`, `pipeline-funnel.tsx`, `source-roi-table.tsx`, `drilldown-sheet.tsx`
+
+**New API routes:** `app/api/leadership/stats/route.ts`, `meetings/route.ts`, `funnel/route.ts`, `source-roi/route.ts`, `drilldown/route.ts`
+
+**New DataService methods:** `getLeadershipStats`, `getMeetingsCount`, `getFunnelData`, `getSourceROI`, `getDrilldownProspects`, `getDrilldownActivities`
+
+#### Admin Panel (`/admin`)
+
+Two tabs: **Users** | **Lead Sources**. Role: `admin` or `canAccessAdmin` override.
+
+**Users tab:**
+- Table: Name/username, Role badge, Status
+- Click a row → inline edit panel with gold border:
+  - Role template pill selector (Rep/Marketing/Admin)
+  - Permission toggle switches with "Role default: on/off" labels — canViewLeadership, canAccessAdmin, canReassignProspects, canViewAllProspects, canMarkDead
+  - Deactivate button → shows "Reassign open prospects to:" picker before confirming
+
+**Lead Sources tab:**
+- List of all lead sources with per-row controls: inline label edit, active toggle, drag reorder, delete
+- "+ New Lead Source" inline add at bottom
+
+**New components:** `components/admin/users-tab.tsx`, `lead-sources-tab.tsx`
+
+**New API routes:** `app/api/admin/users/route.ts`, `users/[id]/route.ts`, `lead-sources/route.ts`, `lead-sources/[key]/route.ts`, `lead-sources/reorder/route.ts`
+
+**New DataService methods:** `updateUser`, `deactivateUser`, `getLeadSources`, `updateLeadSource`, `reorderLeadSources`
+
+### User Menu / Logout (2026-03-19 session)
+
+14 Playwright E2E tests pass (`e2e/auth.spec.ts`). Total: 53 E2E tests passing.
+
+- **Desktop sidebar** — avatar row at sidebar bottom (initials + first name + chevron). Clicking opens a Base UI Popover above the row: full name, role badge, Sign out button.
+- **Mobile bottom nav** — 4th tab with user initials. Tapping opens a Sheet from below: full name, role badge, Sign out button.
+- Both logout paths call `POST /api/auth/logout` → redirect to `/login`.
+
+**New files:** `components/sidebar-user-menu.tsx`, `components/ui/popover.tsx`, `components/ui/switch.tsx`
+**Modified:** `components/sidebar-nav.tsx` (added MobileNav 4th user tab + sheet), `components/sidebar.tsx` (replaced old logout button with SidebarUserMenu)
+**Deleted:** `components/logout-button.tsx`
 
 ### Dashboard Cockpit Redesign (prior session)
 - **Hero card** — #1 priority prospect (overdue → stale → due today → nurture re-engage)
@@ -164,47 +225,64 @@ Global CSS forces `background-color: #ffffff !important` on all inputs/selects/t
 
 ---
 
-## File Map (key files in this session)
+## File Map (key files across all sessions)
 
 ```
 lib/
-  smart-detection.ts          — Added hasOutcome(); reviewed detectActivityType()
-  data.ts                     — Added getLeadSourceCounts(); createPerson() auto-logs Prospect Added
-  types.ts                    — No changes this session
+  data.ts                     — Full DataService interface + provider loader + all new methods
+  providers/mock.ts           — All mock implementations including leadership/admin/lead sources
+  smart-detection.ts          — detectActivityType(), detectOutcome(), hasOutcome()
+  types.ts                    — All TypeScript types
 
 app/
-  page.tsx                    — Dashboard: Log Activity sheet + timeline preview
-  people/page.tsx             — Added back-to-dashboard link
-  person/[id]/page.tsx        — Reordered: cockpit → quick log → next action → profile → timeline
+  page.tsx                    — Dashboard (cockpit: hero card, action queue, stats)
+  people/page.tsx             — People directory (← Dashboard link)
+  person/[id]/page.tsx        — Person detail (full cockpit + detail zone)
+  pipeline/page.tsx           — Pipeline table with filters
+  leadership/page.tsx         — Leadership Dashboard (stat column + funnel + source ROI)
+  admin/page.tsx              — Admin Panel (Users + Lead Sources tabs)
   api/
-    lead-sources/route.ts     — NEW: GET returns LEAD_SOURCES sorted by frequency (calls getLeadSourceCounts)
-    persons/search/route.ts   — NEW: GET ?q= for people autocomplete (calls searchPeople)
-    persons/[id]/referrer/    — NEW: POST link referrer, DELETE unlink referrer
-    persons/[id]/funding-entities/ — NEW: POST create entity, DELETE remove entity
-    organizations/route.ts    — NEW: POST create org (for inline org creation)
+    auth/logout/route.ts      — POST: clear session cookie
+    lead-sources/route.ts     — GET: lead sources sorted by frequency
+    persons/[id]/...          — CRUD for person fields, stage, next action, activities, etc.
+    leadership/...            — stats, meetings, funnel, source-roi, drilldown
+    admin/users/...           — CRUD users + deactivate with reassign
+    admin/lead-sources/...    — CRUD lead sources + reorder
 
 components/
-  dashboard/
-    create-prospect-sheet.tsx — Success screen with two options; date fix; auto-activity
-    dashboard-header.tsx      — (from prior session, no changes this session)
-  person/
-    identity-bar.tsx          — Phone/email prominently shown, inline editing
-    quick-log.tsx             — "More options" outcome conditional; post-log flow fixes
-    next-action-bar.tsx       — Advance stage clearly clickable; post-confirm state view
-    stage-bar.tsx             — Symmetric equal-width pill design
-    organization-section.tsx  — Fully editable: autocomplete-or-create, Enter key, named remove
-    funding-entities.tsx      — Fully editable: add inline, remove
-    referrer-section.tsx      — Fully editable: people search autocomplete
-    prospect-fields.tsx       — Inline editing for Phone, Email, Investment/Growth Target
+  sidebar.tsx                 — Server component: desktop sidebar + mobile nav
+  sidebar-user-menu.tsx       — NEW: desktop avatar row + Base UI popover (user info + sign out)
+  sidebar-nav.tsx             — SidebarNav (desktop) + MobileNav (mobile, includes 4th user tab)
+  dashboard/                  — Hero card, action queue, stats footer, create/log sheets
+  person/                     — Identity bar, quick log, next action, stage bar, profile card, etc.
+  leadership/
+    stat-column.tsx           — 6 KPI cards with drill-down; 7d/14d/30d toggle on Meetings
+    pipeline-funnel.tsx       — Tapering funnel visualization per stage
+    source-roi-table.tsx      — Source / Prospects / Funded / AUM / Conv% table
+    drilldown-sheet.tsx       — Slide-out sheet for all drill-down views
+  admin/
+    users-tab.tsx             — User list + inline edit panel (role + permissions + deactivate)
+    lead-sources-tab.tsx      — Lead source list (inline edit, active toggle, reorder, add)
   ui/
-    lead-source-picker.tsx    — NEW: chip picker, categories, frequency ordering, "More" + "Add new"
-    date-quick-pick.tsx       — Fixed: single selection, default = tomorrow
+    popover.tsx               — NEW: Base UI @base-ui/react/popover wrapper
+    switch.tsx                — NEW: Base UI switch for admin permission toggles
+    lead-source-picker.tsx    — Chip picker, categories, frequency ordering, "More" + "Add new"
+    date-quick-pick.tsx       — Date shortcuts (Today, Tomorrow, +3d, +7d, +14d, +30d)
+    sheet.tsx                 — Base UI Sheet (used by mobile nav and drill-down)
+
+e2e/
+  auth.spec.ts                — 14 tests: login, logout, user menu (desktop + mobile)
+  leadership.spec.ts          — ~20 tests: leadership stats, funnel, source ROI, drill-down
+  admin.spec.ts               — ~19 tests: users tab, lead sources tab
+  (plus prior spec files for dashboard, person-detail, pipeline, etc.)
 
 docs/
-  DESIGN-SPEC.md              — Updated version 1.1 (all changes from this session)
-  zoho-provider-guide.md      — Updated: new endpoints, getLeadSourceCounts, Prospect Added
+  DESIGN-SPEC.md              — Version 1.2 (updated with leadership, admin, user menu)
+  zoho-provider-guide.md      — Updated: all new DataService methods documented
   HANDOFF.md                  — This file
-  HANDOFF-PROMPT.md           — New: handoff prompt for next Claude Code session
+  HANDOFF-PROMPT.md           — Copy-paste prompt for new Claude Code session
+  superpowers/specs/          — All design specs
+  superpowers/plans/          — All implementation plans
 ```
 
 ---
@@ -212,19 +290,32 @@ docs/
 ## What's NOT Built Yet
 
 From DESIGN-SPEC.md, these features are still pending:
-- **Pipeline inline actions** — quick log, advance stage, pin/unpin from pipeline rows (HIGH PRIORITY — see next Ralph loop)
-- **Pinned Prospects** — star icon on pipeline rows
-- **Leadership Dashboard** (`/leadership`) — AUM progress, funnel, source ROI
-- **Admin Panel** (`/admin`) — user management, stage config, lead source management
-- **Last Viewed Bar** — persistent bar across all screens
+
+**High Priority:**
+- **Pipeline inline actions** — quick log, advance stage, pin/unpin from pipeline rows (no navigation required)
+- **Pinned Prospects** — star icon on pipeline rows, pinned section at top of Pipeline View
+
+**Leadership Dashboard — partial gaps:**
+- Top Referrers panel (referrer name, referral count, pipeline value, funded value)
+- Red Flags panel (stale/overdue prospects at a glance with green "Healthy" empty state)
+- AUM progress bar vs. $105M target (current V1 hardcoded at $10M)
+- Ken partial-access view (Source Attribution + Top Referrers only for marketing role)
+
+**Admin Panel — unbuilt tabs:**
+- Role Templates management (define permission sets at template level)
+- Pipeline Stage Config (edit names, idle thresholds, ordering)
+- Activity Type Management (add/remove/rename)
+- Data Hygiene (merge duplicate People, Organizations)
+- System Settings (AUM baseline/target, default rep, company name)
+
+**Other:**
+- **Last Viewed Bar** — persistent most-recent prospect bar across all screens
 - **Keyboard shortcuts** — N, L, /, arrow keys, Enter, S, P, Esc, ? overlay
 - **Duplicate detection** — autocomplete-or-create on prospect Full Name
 - **Create Prospect from People page** — currently only accessible from dashboard
 - **Zoho provider** (`lib/providers/zoho.ts`) — IT team builds this
-- **Mobile Quick Log** — floating action button
 - **Daily overdue email** — scheduled notification to Chad
-- **Lead Source admin management** — currently managed via `lib/constants.ts`; future admin panel section
-- **Smart detection re-test** — `detectActivityType()` code is correct; worth confirming in browser after all the recent changes
+- **Smart detection re-test** — `detectActivityType()` code is correct; worth confirming in browser
 
 ---
 
@@ -233,7 +324,7 @@ From DESIGN-SPEC.md, these features are still pending:
 ```bash
 npm run dev          # Start dev server (mock data)
 npm run build        # Production build
-npx playwright test  # Run E2E tests (55 passing at start of session — may drift during active dev)
+npx playwright test  # Run E2E tests (53 passing as of 2026-03-19)
 ```
 
 Login: `chad` / `password123` (rep), `eric` / `password123` (admin), `ken` / `password123` (marketing)

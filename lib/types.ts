@@ -60,6 +60,16 @@ export type OrgType = "family_office" | "wealth_management" | "corporate" | "ind
 export type ContactType = "cpa" | "attorney" | "wealth_advisor" | "spouse" | "existing_investor" | "other";
 export type UserRole = "rep" | "marketing" | "admin";
 
+// ─── Permissions ───
+
+export interface UserPermissions {
+  canViewLeadership?: boolean;
+  canAccessAdmin?: boolean;
+  canReassignProspects?: boolean;
+  canViewAllProspects?: boolean;
+  canMarkDead?: boolean;
+}
+
 // ─── Data Models ───
 
 export interface Person {
@@ -141,6 +151,7 @@ export interface User {
   role: UserRole;
   isActive: boolean;
   passwordHash: string;
+  permissions?: UserPermissions;
 }
 
 // ─── Relationship Links ───
@@ -168,6 +179,53 @@ export interface PersonWithComputed extends Person {
   referrerName: string | null;
 }
 
+// ─── Leadership Stats ───
+
+export interface LeadershipStats {
+  aumRaised: number;
+  fundTarget: number;
+  fundedYTDCount: number;
+  activeCount: number;
+  pipelineValue: number;
+}
+
+export interface FunnelStage {
+  stage: PipelineStage;
+  label: string;
+  count: number;
+  totalValue: number;
+}
+
+export interface SourceROIRow {
+  source: string;
+  label: string;
+  prospectCount: number;
+  fundedCount: number;
+  aum: number;
+  conversionPct: number;
+}
+
+export interface DrilldownProspectFilter {
+  stage?: PipelineStage;
+  leadSource?: string;
+  fundedYTD?: boolean;
+  active?: boolean;
+}
+
+export interface DrilldownActivityFilter {
+  activityType: string;
+  days: number;
+}
+
+// ─── Lead Source Config ───
+
+export interface LeadSourceConfig {
+  key: string;
+  label: string;
+  order: number;
+  isActive: boolean;
+}
+
 // ─── Dashboard Stats ───
 
 export interface DashboardStats {
@@ -184,6 +242,7 @@ export interface PeopleFilters {
   pipelineStages?: PipelineStage[];
   leadSources?: LeadSource[];
   assignedRepId?: string;
+  assignedRepUnassigned?: boolean;
   staleOnly?: boolean;
   search?: string;
 }
@@ -257,6 +316,25 @@ export interface DataService {
 
   // Analytics
   getLeadSourceCounts(): Promise<Record<string, number>>;
+
+  // Leadership
+  getLeadershipStats(): Promise<LeadershipStats>;
+  getMeetingsCount(days: number): Promise<number>;
+  getFunnelData(): Promise<FunnelStage[]>;
+  getSourceROI(): Promise<SourceROIRow[]>;
+  getDrilldownProspects(filter: DrilldownProspectFilter): Promise<PersonWithComputed[]>;
+  getDrilldownActivities(filter: DrilldownActivityFilter): Promise<RecentActivityEntry[]>;
+
+  // Lead Sources (dynamic)
+  getLeadSources(opts?: { includeInactive?: boolean }): Promise<LeadSourceConfig[]>;
+  createLeadSource(data: { label: string }): Promise<LeadSourceConfig>;
+  updateLeadSource(key: string, data: Partial<Pick<LeadSourceConfig, "label" | "isActive">>): Promise<LeadSourceConfig>;
+  reorderLeadSources(keys: string[]): Promise<void>;
+
+  // Admin — Users
+  updateUserPermissions(userId: string, permissions: UserPermissions): Promise<User>;
+  deactivateUser(userId: string, reassignToId?: string): Promise<void>;
+  getUnassignedProspects(): Promise<PersonWithComputed[]>;
 
   // Testing
   resetData?(): void;

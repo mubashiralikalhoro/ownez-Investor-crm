@@ -10,10 +10,9 @@ export async function POST() {
   const ds = await getDataService();
   if (ds.resetData) {
     ds.resetData();
-    return NextResponse.json({ ok: true });
   }
 
-  // Fallback: clear the singleton so a fresh one is created from pristine module-level arrays
+  // Always clear the singleton so the next request gets a fresh instance with all current methods
   clearDataService();
-  return NextResponse.json({ ok: true, method: "singleton-clear" });
+  return NextResponse.json({ ok: true });
 }

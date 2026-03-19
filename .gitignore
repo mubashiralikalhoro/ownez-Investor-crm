@@ -18,3 +18,15 @@ npm-debug.log*
 .DS_Store
 *.tsbuildinfo
 next-env.d.ts
+
+# test artifacts
+playwright-report/
+test-results/
+.playwright-mcp/
+
+# screenshots
+*.png
+
+# claude/superpowers
+.claude/
+.superpowers/
