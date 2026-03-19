@@ -316,7 +316,7 @@ These run in Zoho, not in the frontend:
 | `/person/[id]` | Person Detail | Chad, Ken | Edit record, log activity | ✅ Built |
 | `/people` | People Directory | All | Search all people (prospects, contacts, referrers) | ✅ Built |
 | `/leadership` | Leadership Dashboard | Eric, Efri, Ken (partial) | AUM, funnel, source ROI. Ken sees Source Attribution + Top Referrers only. | ✅ Built |
-| `/admin` | Admin Panel | Eric, Efri | System configuration | ✅ Built (Users + Lead Sources tabs) |
+| `/admin` | Admin Panel | Eric, Efri | System configuration | ✅ Built (Users, Lead Sources, Stages, Activity Types, Settings tabs) |
 | `/login` | Login | All | Auth gate | ✅ Built |
 
 **Mobile "Search" tab** maps to `/people` — a global search overlay that searches across all People regardless of role.
@@ -404,9 +404,9 @@ Full sortable table of all active pipeline records (excluding Nurture and Dead).
 **Pinned Prospects (future release):**
 Considered for a future release. Chad can pin up to 10 prospects to the top of Pipeline View (star icon on each row). Pinned prospects always appear above the separator line regardless of sort order or filters. One click to pin/unpin. Pin state is per-user (stored in user preferences, not on the prospect record).
 
-**Inline row actions** (hover on desktop, swipe on mobile):
-1. **Quick Log** — compact inline text input opens directly on the row. Type, Enter, confirm Next Action, done. User never leaves Pipeline View. Identical behavior to Person Detail Quick Log (including smart prefix detection, outcome detection, and the Next Action prompt).
-2. **Advance Stage** — one-click to move to the next sequential stage (e.g., Pitch → Active Engagement). Fires the post-stage-change prompt inline. For non-sequential moves (Nurture, Dead, skip stages), user must open Person Detail.
+**Inline row actions (✅ Built 2026-03-19)** — appear on hover (desktop):
+1. **Quick Log** — compact inline text input opens directly below the row. Type, Enter, confirm Next Action, done. User never leaves Pipeline View. Identical behavior to Person Detail Quick Log (including smart prefix detection, outcome detection, and the Next Action prompt). Component: `components/pipeline/inline-quick-log.tsx`.
+2. **Advance Stage** — one-click to move to the next sequential stage (e.g., Pitch → Active Engagement). Fires confirmation dialog. For non-sequential moves (Nurture, Dead, skip stages), user must open Person Detail.
 
 **Design notes:**
 - Dollar amounts right-aligned, formatted with $ and K/M abbreviation
@@ -588,11 +588,11 @@ Columns: Source, Prospects, Funded, AUM, Conv%. Sorted by AUM descending. Click 
 
 Standard `Sheet` component slides in from the right. Shows header context label ("Pitch · 2 prospects") and a list of prospects or activities with clickable links to `/person/[id]`.
 
-**Original spec intent not yet implemented:**
-- Fund target configurable via Admin → System Settings (default $10.5M)
-- Top Referrers panel
-- Red Flags panel (stale/overdue prospects at a glance)
-- Ken partial-access view (Source Attribution + Top Referrers only)
+**All original spec intent now implemented (2026-03-19):**
+- ✅ Fund target configurable via Admin → System Settings (default $10.5M)
+- ✅ Top Referrers panel (`components/leadership/top-referrers.tsx`)
+- ✅ Red Flags panel — stale/overdue prospects at a glance (`components/leadership/red-flags.tsx`)
+- ✅ Ken partial-access view — marketing role sees Source Attribution + Top Referrers only
 
 ### 6.6 People Directory (`/people`)
 
@@ -654,11 +654,11 @@ If the creator is not the Assigned Rep (e.g., Ken creates and assigns to Chad), 
 
 ### 6.8 Admin Panel (`/admin`)
 
-> **Status: ✅ Implemented (Users + Lead Sources tabs)** (2026-03-18). See `docs/superpowers/specs/2026-03-18-leadership-admin-design.md` for the approved design spec.
+> **Status: ✅ Fully Implemented** (2026-03-19). Five tabs: Users, Lead Sources, Stages, Activity Types, Settings.
 
 Role: `admin` only, or any user with `canAccessAdmin` permission override.
 
-**Layout:** Page header "Admin", two tabs: **Users** | **Lead Sources**.
+**Layout:** Page header "Admin", five tabs: **Users** | **Lead Sources** | **Stages** | **Activity Types** | **Settings**.
 
 #### Users Tab (✅ Built)
 
@@ -679,12 +679,23 @@ List of all current lead sources. Per-row controls:
 - Drag-to-reorder (persistent order used in chip picker)
 - **+ New Lead Source** button at bottom: inline add form
 
+#### Pipeline Stages Tab (✅ Built 2026-03-19)
+
+Edit pipeline stage labels and idle thresholds. Each row: stage name, idle threshold (days), Edit button. Inline edit with Save/Cancel. Component: `components/admin/pipeline-stages-tab.tsx`.
+
+#### Activity Types Tab (✅ Built 2026-03-19)
+
+Manage activity types available in Quick Log. Each row: type name, active toggle, Edit button. System types (Stage Change, Reassignment) are locked. "+ Add" inline form at bottom. Component: `components/admin/activity-types-tab.tsx`.
+
+#### System Settings Tab (✅ Built 2026-03-19)
+
+- **Fund Target ($M)** — configurable, default $10.5M. Displayed on Leadership Dashboard progress bar.
+- **Company Name** — configurable, default "OwnEZ Capital".
+- Save button persists via `PATCH /api/admin/system-config`. Component: `components/admin/system-settings-tab.tsx`.
+
 **Sections not yet built (planned):**
 - Role Templates — define permission sets at the template level
-- Pipeline Stage Config — edit stage names, idle thresholds, ordering
-- Activity Type Management — add/remove/rename
 - Data Hygiene — merge duplicates
-- System Settings — Fund target (default $10.5M, admin-only), default rep, company name
 
 ### 6.9 Date Quick-Pick Chips
 
@@ -719,9 +730,11 @@ The core loop — find, log, update, advance — should be achievable without to
 
 Shortcuts are discoverable via a `?` overlay (press `?` on any screen to see available shortcuts).
 
-### 6.11 Last Viewed Bar (Global)
+### 6.11 Last Viewed Bar (Global) — ✅ Built 2026-03-19
 
 See Section 6.2 — the Last Viewed Bar is defined there as it appears on every screen. It persists across navigation: if Chad views Robert Calloway, then goes to Pipeline View, the bar still shows Robert with Quick Log access. This is the critical "I just hung up the phone" optimization.
+
+**Implementation:** `components/last-viewed-bar.tsx` (renders the bar with inline Quick Log), `components/set-last-viewed.tsx` (sets localStorage on person detail visit). Integrated into `app/layout.tsx` above `{children}`. Persists via `localStorage` with `last-viewed-changed` event for cross-component sync.
 
 ---
 

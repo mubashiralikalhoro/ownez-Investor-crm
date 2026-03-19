@@ -1205,7 +1205,7 @@ Returns fund-level KPIs for the Leadership Dashboard stat column.
 ```typescript
 interface LeadershipStats {
   aumRaised: number;       // Sum of all FundedInvestment.amountInvested
-  fundTarget: number;      // V1: hardcoded $10M; future: from SystemConfig
+  fundTarget: number;      // Read from SystemConfig (default $10.5M, admin-configurable)
   fundedYTDCount: number;  // Count of FundedInvestments in current calendar year
   activeCount: number;     // Count of prospects in active pipeline stages
   pipelineValue: number;   // Sum of initialInvestmentTarget for active prospects
@@ -1375,6 +1375,134 @@ interface UpdateLeadSourceInput {
 Persists a new display order for lead sources. `keys` is the full ordered array of all lead source keys.
 
 **V1:** Updates the in-memory order in the mock provider. **Zoho:** Writes order values to the `Lead_Source_Config` module records.
+
+---
+
+#### `getTopReferrers(limit?: number): Promise<ReferrerStats[]>`
+
+Returns the top referrers by referral count, with pipeline and funded value totals.
+
+```typescript
+interface ReferrerStats {
+  referrerId: string;
+  referrerName: string;
+  referralCount: number;
+  pipelineValue: number;   // sum of initialInvestmentTarget for referred active prospects
+  fundedValue: number;     // sum of amountInvested for funded investments from referred prospects
+}
+```
+
+**Zoho implementation:** Query the Referrer_Links junction module, join with People and FundedInvestments modules to compute aggregates. Group by referrerId, sort by referralCount descending, limit results.
+
+---
+
+#### `getRedFlags(): Promise<PersonWithComputed[]>`
+
+Returns all active-stage prospects that are stale or overdue, sorted by days idle descending. Used by the Leadership Dashboard Red Flags panel.
+
+**Zoho implementation:** Reuse `getPeople()` with active stage filter, then apply stale/overdue computation (same as Pipeline View). Filter to only stale/overdue, sort by daysSinceLastTouch descending.
+
+---
+
+#### `getSystemConfig(): Promise<SystemConfig>`
+
+Returns system-wide configuration settings.
+
+```typescript
+interface SystemConfig {
+  fundTarget: number;       // e.g., 10_500_000 ($10.5M)
+  companyName: string;      // e.g., "OwnEZ Capital"
+  defaultRepId: string | null;
+}
+```
+
+**Zoho implementation:** Store as a single record in a `System_Config` custom module (key-value pairs), or as a JSON blob in a Zoho custom field. Read on every leadership page load.
+
+**API route:** `GET /api/admin/system-config`
+
+---
+
+#### `updateSystemConfig(data: Partial<SystemConfig>): Promise<SystemConfig>`
+
+Updates one or more system config fields. Admin-only.
+
+**Zoho implementation:** `PUT` to the System_Config record in Zoho.
+
+**API route:** `PATCH /api/admin/system-config`
+
+---
+
+#### `getPipelineStageConfigs(): Promise<PipelineStageConfig[]>`
+
+Returns all pipeline stage configurations (label, idle threshold, order).
+
+```typescript
+interface PipelineStageConfig {
+  key: string;              // e.g., "pitch"
+  label: string;            // e.g., "Pitch"
+  idleThreshold: number | null;  // days before stale flag, null = no threshold
+  order: number;
+}
+```
+
+**Zoho implementation:** Store in a `Pipeline_Stage_Config` custom module. If not using a custom module, read from the Zoho picklist metadata API and store thresholds in a separate config module.
+
+**API route:** `GET /api/admin/pipeline-stages`
+
+---
+
+#### `updatePipelineStageConfig(key: string, data: { label?, idleThreshold? }): Promise<PipelineStageConfig>`
+
+Updates a stage's label and/or idle threshold. Admin-only.
+
+**Zoho implementation:** Update the corresponding record in `Pipeline_Stage_Config`. If the label changes, also update the Zoho picklist value for Pipeline_Stage.
+
+**API route:** `PATCH /api/admin/pipeline-stages`
+
+---
+
+#### `getActivityTypeConfigs(): Promise<ActivityTypeConfig[]>`
+
+Returns all activity type configurations.
+
+```typescript
+interface ActivityTypeConfig {
+  key: string;           // e.g., "call"
+  label: string;         // e.g., "Call"
+  isActive: boolean;     // inactive types hidden from Quick Log picker
+  isSystem: boolean;     // stage_change, reassignment — not editable
+}
+```
+
+**Zoho implementation:** Store in an `Activity_Type_Config` custom module. System types (stage_change, reassignment) should be flagged as non-editable.
+
+**API route:** `GET /api/admin/activity-types`
+
+---
+
+#### `updateActivityTypeConfig(key: string, data: { label?, isActive? }): Promise<ActivityTypeConfig>`
+
+Updates an activity type's label or active state. System types cannot be modified.
+
+**API route:** `PATCH /api/admin/activity-types`
+
+---
+
+#### `createActivityType(data: { label: string }): Promise<ActivityTypeConfig>`
+
+Creates a new custom activity type. Key is auto-generated from the label.
+
+**Zoho implementation:** Create a record in `Activity_Type_Config` and add the value to the Activity_Type picklist in Zoho.
+
+**API route:** `POST /api/admin/activity-types`
+
+---
+
+#### `getUnassignedProspects(): Promise<PersonWithComputed[]>`
+
+Returns all active prospects with no assigned rep. Used by the Admin Panel deactivate flow (to show count of prospects that need reassignment).
+
+**Zoho implementation:** Filter from `getPeople()` where `assignedRepId` is null and stage is active.
 
 ---
 

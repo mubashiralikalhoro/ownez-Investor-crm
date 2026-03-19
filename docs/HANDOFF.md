@@ -24,7 +24,7 @@ Two-column layout: 115px stat column + right panel. Roles: `marketing`, `admin`,
 
 **Stat Column** — 6 KPI cards (all clickable → drill-down sheet):
 - AUM Raised — sum of all FundedInvestment.amountInvested
-- Fund Target — progress bar toward $10M V1 target
+- Fund Target — progress bar toward configurable target (default $10.5M, set in Admin → Settings)
 - Funded YTD — count of FundedInvestments in current year
 - Active — count of prospects in active pipeline stages
 - Pipeline Value — sum of initialInvestmentTarget for active
@@ -44,7 +44,7 @@ Two-column layout: 115px stat column + right panel. Roles: `marketing`, `admin`,
 
 #### Admin Panel (`/admin`)
 
-Two tabs: **Users** | **Lead Sources**. Role: `admin` or `canAccessAdmin` override.
+Five tabs: **Users** | **Lead Sources** | **Stages** | **Activity Types** | **Settings**. Role: `admin` or `canAccessAdmin` override.
 
 **Users tab:**
 - Table: Name/username, Role badge, Status
@@ -62,6 +62,35 @@ Two tabs: **Users** | **Lead Sources**. Role: `admin` or `canAccessAdmin` overri
 **New API routes:** `app/api/admin/users/route.ts`, `users/[id]/route.ts`, `lead-sources/route.ts`, `lead-sources/[key]/route.ts`, `lead-sources/reorder/route.ts`
 
 **New DataService methods:** `updateUser`, `deactivateUser`, `getLeadSources`, `updateLeadSource`, `reorderLeadSources`
+
+### Gap Closure Session (2026-03-19)
+
+All via Ralph Loop. 94 E2E tests passing.
+
+#### Pipeline Inline Actions
+- **Quick Log from row** — hover shows message icon; click expands inline quick log below the row with smart detection + next action prompt. Component: `components/pipeline/inline-quick-log.tsx`
+- **Advance Stage from row** — hover shows arrow icon; click advances to next sequential stage with confirmation dialog
+
+#### Last Viewed Bar
+- Persistent bar at top of every screen showing most recently viewed prospect
+- Quick Log directly from the bar without navigating to person detail
+- Set on person detail visit, persists via `localStorage`
+- Components: `components/last-viewed-bar.tsx`, `components/set-last-viewed.tsx`
+
+#### Leadership Dashboard Enhancements
+- **Top Referrers panel** — referrer name, referral count, pipeline value, funded value. Component: `components/leadership/top-referrers.tsx`
+- **Red Flags panel** — stale/overdue prospects at a glance with red styling, or green "Pipeline healthy". Component: `components/leadership/red-flags.tsx`
+- **Ken partial-access** — marketing role sees only Source Attribution + Top Referrers (no stats, funnel, or red flags)
+- **Fund Target** now reads from configurable SystemConfig (default $10.5M), no longer hardcoded
+
+#### Admin Panel — 3 New Tabs
+- **Stages tab** — edit pipeline stage labels and idle thresholds inline. Component: `components/admin/pipeline-stages-tab.tsx`. API: `GET/PATCH /api/admin/pipeline-stages`
+- **Activity Types tab** — edit labels, toggle active/inactive, add new custom types. System types locked. Component: `components/admin/activity-types-tab.tsx`. API: `GET/POST/PATCH /api/admin/activity-types`
+- **Settings tab** — fund target ($M), company name. Component: `components/admin/system-settings-tab.tsx`. API: `GET/PATCH /api/admin/system-config`
+
+**New DataService methods:** `getSystemConfig`, `updateSystemConfig`, `getPipelineStageConfigs`, `updatePipelineStageConfig`, `getActivityTypeConfigs`, `updateActivityTypeConfig`, `createActivityType`, `getTopReferrers`, `getRedFlags`, `getUnassignedProspects`
+
+**New types:** `SystemConfig`, `PipelineStageConfig`, `ActivityTypeConfig`, `ReferrerStats`
 
 ### User Menu / Logout (2026-03-19 session)
 

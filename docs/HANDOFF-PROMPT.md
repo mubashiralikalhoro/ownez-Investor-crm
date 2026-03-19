@@ -33,12 +33,12 @@ Custom Next.js CRM for OwnEZ Capital's HNW investor pipeline. Primary user is Ch
 
 ## Current state (as of 2026-03-19)
 
-**Fully built and working (53 E2E tests passing):**
+**Fully built and working (94 E2E tests passing):**
 
 - **Auth:** Login, session (JWT cookie), middleware protection, logout
 - **User Menu:** Desktop sidebar avatar-row popover + mobile 4th-tab bottom sheet (sign out from both)
 - **Dashboard** (cockpit): hero card, action queue, stats footer, create prospect sheet, log activity sheet
-- **Pipeline View:** full table with stage filter
+- **Pipeline View:** full table with stage/source/rep/stale filters, column sorting, inline Quick Log + Advance Stage from rows
 - **People Directory:** search by name/company
 - **Person Detail page — complete:**
   - Identity bar (name, phone/email with visible-pencil inline edit, stage badge, target)
@@ -49,8 +49,9 @@ Custom Next.js CRM for OwnEZ Capital's HNW investor pipeline. Primary user is Ch
   - Activity timeline (filterable by type)
   - Relationships section (referrer, funding entities, related contacts — all editable inline)
   - Background notes
-- **Leadership Dashboard** (`/leadership`): stat column (AUM, Fund Target progress, Funded YTD, Active, Pipeline Value, Meetings with 7/14/30d toggle), Pipeline Funnel, Source ROI Table, drill-down sheets for all cards/rows
-- **Admin Panel** (`/admin`): Users tab (inline edit panel, role templates, permission toggles, deactivate with reassign), Lead Sources tab (inline label edit, active toggle, drag-reorder, add new)
+- **Last Viewed Bar** (all screens): persistent bar showing most recently viewed prospect with inline Quick Log
+- **Leadership Dashboard** (`/leadership`): stat column (AUM, Fund Target progress, Funded YTD, Active, Pipeline Value, Meetings with 7/14/30d toggle), Pipeline Funnel, Source ROI Table, Top Referrers, Red Flags, drill-down sheets for all cards/rows. Ken (marketing) sees Source Attribution + Top Referrers only.
+- **Admin Panel** (`/admin`): Users tab (inline edit, role templates, permissions, deactivate with reassign), Lead Sources tab (edit, toggle, reorder, add), Pipeline Stages tab (edit labels + idle thresholds), Activity Types tab (edit, toggle, add new), System Settings tab (fund target, company name)
 
 ## Key DataService methods (all in mock; all need Zoho impl)
 
@@ -74,20 +75,36 @@ Custom Next.js CRM for OwnEZ Capital's HNW investor pipeline. Primary user is Ch
 - `getDrilldownProspects(filter)` — prospects filtered by stage/leadSource/fundedYTD
 - `getDrilldownActivities(filter)` — activities filtered by type/days
 
-**Admin Lead Sources:**
+**Admin — Lead Sources:**
 - `getLeadSources` — full list with order, active flag, label
 - `updateLeadSource(key, data)` — update label, active state
 - `reorderLeadSources(keys)` — persist new order
 
+**Admin — Pipeline Stages & Activity Types:**
+- `getPipelineStageConfigs` — all stages with label, idleThreshold, order
+- `updatePipelineStageConfig(key, data)` — update label/threshold
+- `getActivityTypeConfigs` — all types with label, isActive, isSystem
+- `updateActivityTypeConfig(key, data)` — update label/active
+- `createActivityType(data)` — add new custom type
+
+**Admin — System Config:**
+- `getSystemConfig` — { fundTarget, companyName, defaultRepId }
+- `updateSystemConfig(data)` — update fund target, company name
+
+**Leadership — Additional:**
+- `getTopReferrers(limit)` — referrer stats: name, count, pipeline value, funded value
+- `getRedFlags` — stale/overdue active prospects sorted by days idle
+
 ## What's remaining (priority order)
 
-1. **Pipeline inline actions** — quick log + advance stage from pipeline rows (no navigation required)
-2. **Pinned Prospects** — star/pin on pipeline rows, pinned section at top
-3. **Leadership Dashboard gaps** — Top Referrers panel, Red Flags panel, AUM vs. $105M target, Ken partial-access
-4. **Admin Panel gaps** — Role Templates, Pipeline Stage Config, Activity Type mgmt, Data Hygiene, System Settings
-5. **Last Viewed Bar** — persistent most-recent prospect bar across all screens
-6. **Keyboard shortcuts** — N (new), L (log), /, arrow keys, Enter, Esc
-7. **Zoho provider** (`lib/providers/zoho.ts`) — IT team builds this per `docs/zoho-provider-guide.md`
+1. **Admin Role Templates** — define permission sets at the template level (planned)
+2. **Admin Data Hygiene** — merge duplicate people/orgs (planned)
+3. **Zoho provider** (`lib/providers/zoho.ts`) — IT team builds this per `docs/zoho-provider-guide.md`
+
+**Deferred to future releases:**
+- Pinned Prospects (pipeline star/pin)
+- Keyboard shortcuts (N, L, /, arrow keys, Enter, Esc)
+- Dashboard Recent Activity feed (cross-prospect activity log)
 
 ## How to navigate the codebase
 
@@ -98,23 +115,33 @@ app/
   person/[id]/page.tsx        — Person detail
   pipeline/page.tsx           — Pipeline table
   leadership/page.tsx         — Leadership Dashboard
-  admin/page.tsx              — Admin Panel (Users + Lead Sources tabs)
+  admin/page.tsx              — Admin Panel (Users, Lead Sources, Stages, Activity Types, Settings)
   api/                        — All API routes (proxy to data service)
 
 components/
   sidebar.tsx                 — Server component: desktop sidebar + mobile nav
   sidebar-user-menu.tsx       — Desktop avatar row + Base UI popover
   sidebar-nav.tsx             — SidebarNav + MobileNav (includes user tab + sheet)
+  last-viewed-bar.tsx         — Persistent last-viewed prospect bar with Quick Log
+  set-last-viewed.tsx         — Sets last-viewed data on person detail visit
   dashboard/                  — Hero card, action queue, stats, create/log sheets
   person/                     — Identity bar, quick log, stage bar, profile card, etc.
+  pipeline/
+    pipeline-table.tsx        — Full pipeline table with filters, sorting, inline actions
+    inline-quick-log.tsx      — Inline Quick Log component for pipeline rows
   leadership/
     stat-column.tsx           — 6 KPI cards + drill-down; Meetings 7d/14d/30d toggle
     pipeline-funnel.tsx       — Tapering funnel visualization
     source-roi-table.tsx      — Source attribution table
+    top-referrers.tsx         — Top referrers panel (name, count, pipeline/funded value)
+    red-flags.tsx             — Stale/overdue prospect panel
     drilldown-sheet.tsx       — Shared slide-out sheet for all drill-down views
   admin/
     users-tab.tsx             — User list + inline edit panel
     lead-sources-tab.tsx      — Lead source list (edit, toggle, reorder, add)
+    pipeline-stages-tab.tsx   — Pipeline stage label + threshold editing
+    activity-types-tab.tsx    — Activity type label, active toggle, add new
+    system-settings-tab.tsx   — Fund target, company name
   ui/
     popover.tsx               — Base UI @base-ui/react/popover wrapper
     switch.tsx                — Base UI switch
