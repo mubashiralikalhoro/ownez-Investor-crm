@@ -24,15 +24,17 @@ Custom Frontend (Next.js on Vercel)
         ▼
   Data Service Layer (lib/data.ts)
         │
-        ├── Provider: Mock (lib/providers/mock.ts) ← ships with V1
-        └── Provider: Zoho (lib/providers/zoho.ts) ← IT team builds
+        ├── Provider: Mock (lib/providers/mock.ts) ← dev/testing
+        ├── Provider: Neon (lib/providers/neon/)   ← production interim
+        └── Provider: Zoho (lib/providers/zoho.ts) ← future
                 │
                 ▼
           Zoho CRM REST API
 ```
 
-- **Next.js** — server-side API routes act as the Zoho API proxy (tokens never exposed to browser)
-- **Data Service Layer** — single abstraction point. One env var (`DATA_PROVIDER=mock|zoho`) switches between mock data and live Zoho. Zero UI code changes.
+- **Next.js** — server-side API routes act as the API proxy (tokens never exposed to browser)
+- **Data Service Layer** — single abstraction point. One env var (`DATA_PROVIDER=mock|neon|zoho`) switches providers. Zero UI code changes.
+- **Neon Postgres** — interim production database via Drizzle ORM + @neondatabase/serverless. Data will be migrated to Zoho when the Zoho provider is ready.
 - **Vercel deployment** — push to git, live in 60 seconds
 
 ### 1.3 Success Criteria
