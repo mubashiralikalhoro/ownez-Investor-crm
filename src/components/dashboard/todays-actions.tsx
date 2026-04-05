@@ -28,7 +28,7 @@ export function TodaysActions({ people, needsAttentionCount, nextUpPerson }: Tod
                 {needsAttentionCount} prospect{needsAttentionCount > 1 ? "s" : ""} need attention
               </Link>
             ) : nextUpPerson ? (
-              <>Pipeline healthy — next action is <Link href={`/person/${nextUpPerson.id}`} className="text-gold hover:underline">{nextUpPerson.fullName}</Link> on {nextUpPerson.nextActionDate}</>
+              <>Pipeline healthy — next action is <Link href={`/prospect/${nextUpPerson.id}`} className="text-gold hover:underline">{nextUpPerson.fullName}</Link> on {nextUpPerson.nextActionDate}</>
             ) : (
               "Pipeline healthy — no upcoming actions"
             )}
@@ -50,7 +50,7 @@ export function TodaysActions({ people, needsAttentionCount, nextUpPerson }: Tod
               {sorted.map((person) => (
                 <tr key={person.id} className="border-b last:border-0 hover:bg-muted/50 transition-colors">
                   <td className="px-4 py-3">
-                    <Link href={`/person/${person.id}`} className="font-medium text-navy hover:text-gold transition-colors">
+                    <Link href={`/prospect/${person.id}`} className="font-medium text-navy hover:text-gold transition-colors">
                       {person.fullName}
                     </Link>
                   </td>

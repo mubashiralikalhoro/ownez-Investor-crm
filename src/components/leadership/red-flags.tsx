@@ -33,7 +33,7 @@ export function RedFlags({ prospects }: RedFlagsProps) {
           {prospects.slice(0, 8).map((p) => (
             <Link
               key={p.id}
-              href={`/person/${p.id}?from=leadership`}
+              href={`/prospect/${p.id}?from=leadership`}
               className="flex items-center gap-2 px-3 py-2 hover:bg-red-100/50 transition-colors"
             >
               <span className="h-2 w-2 rounded-full bg-alert-red shrink-0" />

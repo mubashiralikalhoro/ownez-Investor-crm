@@ -3,11 +3,11 @@
 import { useState } from "react";
 import { DrilldownSheet } from "./drilldown-sheet";
 import { formatCurrency } from "@/lib/format";
-import { demoData } from "@/data/store";
 import type { FunnelStage, PersonWithComputed, PipelineStage } from "@/lib/types";
 
 interface PipelineFunnelProps {
   funnel: FunnelStage[];
+  prospects: PersonWithComputed[];
 }
 
 // Width percentages: 100% → 90% → 78% → 66% → 54% → 42% → 30%
@@ -21,11 +21,11 @@ interface DrilldownState {
   prospects: PersonWithComputed[];
 }
 
-export function PipelineFunnel({ funnel }: PipelineFunnelProps) {
+export function PipelineFunnel({ funnel, prospects }: PipelineFunnelProps) {
   const [drilldown, setDrilldown] = useState<DrilldownState>({ open: false, title: "", prospects: [] });
 
-  async function openDrilldown(stage: string, label: string) {
-    const data = await demoData.getDrilldownProspects({ stage: stage as PipelineStage });
+  function openDrilldown(stage: string, label: string) {
+    const data = prospects.filter(p => p.pipelineStage === (stage as PipelineStage));
     setDrilldown({
       open: true,
       title: `${label} · ${data.length} prospect${data.length !== 1 ? "s" : ""}`,
@@ -34,7 +34,7 @@ export function PipelineFunnel({ funnel }: PipelineFunnelProps) {
   }
 
   const activeFunnel = funnel.filter((f) => f.stage !== "funded" && f.stage !== "nurture" && f.stage !== "dead");
-  const fundedStage = funnel.find((f) => f.stage === "funded");
+  const fundedStage  = funnel.find((f) => f.stage === "funded");
 
   return (
     <>
@@ -43,8 +43,8 @@ export function PipelineFunnel({ funnel }: PipelineFunnelProps) {
           <div key={stage.stage} className="flex flex-col items-center gap-0">
             <button
               onClick={() => openDrilldown(stage.stage, stage.label)}
-              className="transition-opacity hover:opacity-80 cursor-pointer rounded-sm"
-              style={{ width: `${WIDTHS[Math.min(i, WIDTHS.length - 1)]}%` }}
+              className="transition-opacity hover:opacity-80 cursor-pointer rounded-sm w-full"
+              style={{ maxWidth: `${WIDTHS[Math.min(i, WIDTHS.length - 1)]}%` }}
             >
               <div
                 className="flex items-center justify-between px-3 py-2 rounded-sm"
@@ -66,7 +66,6 @@ export function PipelineFunnel({ funnel }: PipelineFunnelProps) {
           </div>
         ))}
 
-        {/* Chevron before funded */}
         {fundedStage && (
           <div className="flex flex-col items-center gap-0.5 mt-0.5">
             <div className="w-3 h-1.5 flex items-center justify-center text-green-400">

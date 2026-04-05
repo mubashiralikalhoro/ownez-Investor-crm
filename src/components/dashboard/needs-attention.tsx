@@ -39,7 +39,7 @@ export function NeedsAttention({ people }: { people: PersonWithComputed[] }) {
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
                       <span className="h-2 w-2 shrink-0 rounded-full bg-alert-red" />
-                      <Link href={`/person/${person.id}`} className="font-medium text-navy hover:text-gold transition-colors">
+                      <Link href={`/prospect/${person.id}`} className="font-medium text-navy hover:text-gold transition-colors">
                         {person.fullName}
                       </Link>
                     </div>

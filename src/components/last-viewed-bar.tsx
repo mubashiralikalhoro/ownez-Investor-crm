@@ -90,7 +90,7 @@ export function LastViewedBar() {
       <div className="flex items-center gap-2 px-3 md:px-8 py-1.5 text-xs">
         <span className="text-muted-foreground shrink-0">Last:</span>
         <Link
-          href={`/person/${data.id}`}
+          href={`/prospect/${data.id}`}
           className="font-medium text-navy hover:text-gold transition-colors truncate"
         >
           {data.fullName}

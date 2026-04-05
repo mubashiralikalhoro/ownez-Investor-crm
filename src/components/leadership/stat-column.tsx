@@ -1,76 +1,53 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { formatCurrency } from "@/lib/format";
 import { DrilldownSheet } from "./drilldown-sheet";
-import { demoData } from "@/data/store";
-import { runLeadershipDrilldown } from "@/data/leadership-drilldown";
-import type { LeadershipStats, PersonWithComputed, RecentActivityEntry } from "@/lib/types";
+import { ACTIVE_PIPELINE_STAGES } from "@/lib/constants";
+import type { LeadershipStats, PersonWithComputed } from "@/lib/types";
 
 interface StatColumnProps {
   stats: LeadershipStats;
-  meetingsCount: number; // initial count for 30d (server-rendered)
+  prospects: PersonWithComputed[];
 }
 
 interface DrilldownState {
   open: boolean;
   title: string;
-  prospects?: PersonWithComputed[];
-  activities?: RecentActivityEntry[];
+  prospects: PersonWithComputed[];
   groupByStage?: boolean;
 }
 
-const CLOSED: DrilldownState = { open: false, title: "" };
+const CLOSED: DrilldownState = { open: false, title: "", prospects: [] };
 
-export function StatColumn({ stats, meetingsCount: initialMeetingsCount }: StatColumnProps) {
-  const [meetingDays, setMeetingDays] = useState<7 | 14 | 30>(30);
-  const [liveMeetingsCount, setLiveMeetingsCount] = useState(initialMeetingsCount);
+export function StatColumn({ stats, prospects }: StatColumnProps) {
   const [drilldown, setDrilldown] = useState<DrilldownState>(CLOSED);
 
-  useEffect(() => {
-    let cancelled = false;
-    void demoData.getMeetingsCount(meetingDays).then((count) => {
-      if (!cancelled) setLiveMeetingsCount(count);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [meetingDays]);
-
-  const progressPct = Math.min(100, Math.round((stats.aumRaised / stats.fundTarget) * 100));
-
-  async function openDrilldown(type: string, value: string, days?: number) {
-    const data = await runLeadershipDrilldown(type, value, days);
-
-    if (type === "kpi" && value === "meetings") {
+  function openDrilldown(type: "fundedAll" | "fundedYTD" | "active") {
+    if (type === "fundedAll" || type === "fundedYTD") {
+      const funded = prospects.filter(p => p.pipelineStage === "funded");
       setDrilldown({
         open: true,
-        title: `Meetings · last ${days}d`,
-        activities: data as RecentActivityEntry[],
+        title: type === "fundedYTD" ? "Funded YTD" : "All Funded Investors",
+        prospects: funded,
       });
     } else {
-      const groupByStage = type === "kpi" && value === "active";
-      setDrilldown({
-        open: true,
-        title: getLabelForDrilldown(type, value, days),
-        prospects: data as PersonWithComputed[],
-        groupByStage,
-      });
+      const active = prospects.filter(
+        p => p.pipelineStage && ACTIVE_PIPELINE_STAGES.includes(p.pipelineStage)
+      );
+      setDrilldown({ open: true, title: "Active Pipeline", prospects: active, groupByStage: true });
     }
   }
 
-  function getLabelForDrilldown(type: string, value: string, days?: number): string {
-    if (type === "kpi" && value === "fundedAll") return "All Funded Investors";
-    if (type === "kpi" && value === "fundedYTD") return "Funded YTD";
-    if (type === "kpi" && value === "active") return "Active Pipeline";
-    return value;
-  }
+  const progressPct = stats.fundTarget > 0
+    ? Math.min(100, Math.round((stats.aumRaised / stats.fundTarget) * 100))
+    : 0;
 
-  const cards: { label: string; value: React.ReactNode; onClick: () => void }[] = [
+  const cards: { label: React.ReactNode; value: React.ReactNode; onClick: () => void }[] = [
     {
       label: "AUM Raised",
       value: <span className="text-lg font-bold text-navy">{formatCurrency(stats.aumRaised)}</span>,
-      onClick: () => openDrilldown("kpi", "fundedAll"),
+      onClick: () => openDrilldown("fundedAll"),
     },
     {
       label: "Fund Target",
@@ -80,65 +57,42 @@ export function StatColumn({ stats, meetingsCount: initialMeetingsCount }: StatC
           <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
             <div className="h-full bg-gold rounded-full" style={{ width: `${progressPct}%` }} />
           </div>
-          <div className="text-[10px] text-muted-foreground">{formatCurrency(stats.aumRaised)} of {formatCurrency(stats.fundTarget)}</div>
+          {stats.fundTarget > 0 && (
+            <div className="text-[10px] text-muted-foreground">
+              {formatCurrency(stats.aumRaised)} of {formatCurrency(stats.fundTarget)}
+            </div>
+          )}
         </div>
       ),
-      onClick: () => openDrilldown("kpi", "fundedAll"),
+      onClick: () => openDrilldown("fundedAll"),
     },
     {
       label: "Funded YTD",
       value: <span className="text-lg font-bold text-navy">{stats.fundedYTDCount}</span>,
-      onClick: () => openDrilldown("kpi", "fundedYTD"),
+      onClick: () => openDrilldown("fundedYTD"),
     },
     {
       label: "Active",
       value: <span className="text-lg font-bold text-navy">{stats.activeCount}</span>,
-      onClick: () => openDrilldown("kpi", "active"),
+      onClick: () => openDrilldown("active"),
     },
     {
       label: "Pipeline Value",
       value: <span className="text-lg font-bold text-navy">{formatCurrency(stats.pipelineValue)}</span>,
-      onClick: () => openDrilldown("kpi", "active"),
-    },
-    {
-      label: (
-        <div className="flex flex-col gap-1">
-          <span>Meetings</span>
-          <div className="flex gap-1">
-            {([7, 14, 30] as const).map((d) => (
-              <span
-                key={d}
-                role="button"
-                tabIndex={0}
-                onClick={(e) => { e.stopPropagation(); setMeetingDays(d); }}
-                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); setMeetingDays(d); } }}
-                className={`text-[10px] px-1.5 py-0.5 rounded-full border transition-colors cursor-pointer ${
-                  meetingDays === d
-                    ? "bg-gold text-white border-gold"
-                    : "border-gray-200 text-muted-foreground hover:border-gold"
-                }`}
-              >
-                {d}d
-              </span>
-            ))}
-          </div>
-        </div>
-      ) as unknown as string,
-      value: <span className="text-lg font-bold text-navy">{liveMeetingsCount}</span>,
-      onClick: () => openDrilldown("kpi", "meetings", meetingDays),
+      onClick: () => openDrilldown("active"),
     },
   ];
 
   return (
     <>
-      <div className="w-[115px] shrink-0 flex flex-col gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
         {cards.map((card, i) => (
           <button
             key={i}
             onClick={card.onClick}
-            className="w-full text-left rounded-lg border bg-card px-3 py-3 hover:border-gold/60 transition-colors cursor-pointer"
+            className="text-left rounded-lg border bg-card px-3 py-3 hover:border-gold/60 transition-colors cursor-pointer"
           >
-            <div className="text-[10px] text-muted-foreground mb-1 leading-tight">{card.label as React.ReactNode}</div>
+            <div className="text-[10px] text-muted-foreground mb-1 leading-tight">{card.label}</div>
             {card.value}
           </button>
         ))}
@@ -149,7 +103,6 @@ export function StatColumn({ stats, meetingsCount: initialMeetingsCount }: StatC
         onClose={() => setDrilldown(CLOSED)}
         title={drilldown.title}
         prospects={drilldown.prospects}
-        activities={drilldown.activities}
         groupByStage={drilldown.groupByStage}
       />
     </>

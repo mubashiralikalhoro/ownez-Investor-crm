@@ -1,5 +1,6 @@
 import { AxiosError } from "axios";
 import { zohoApi } from "@/lib/zoho/api-client";
+import { apiCache } from "@/lib/redis";
 import type {
   ProspectFilters,
   ProspectsListResult,
@@ -16,6 +17,7 @@ import type {
   ZohoTask,
   ZohoFundedRecord,
 } from "@/types";
+import { printLog } from "@/lib/utils";
 
 /** Fields to request from the Prospects module. */
 const PROSPECT_FIELDS = [
@@ -145,8 +147,8 @@ export async function getProspectsList(
     if (hasSearch) {
       if (filters.excludeFunded) records = records.filter(r => r.Pipeline_Stage !== "Funded");
       if (filters.pipelineStage) records = records.filter(r => r.Pipeline_Stage === filters.pipelineStage);
-      if (filters.leadSource)    records = records.filter(r => r.Lead_Source    === filters.leadSource);
-      if (filters.ownerId)       records = records.filter(r => r.Owner?.id      === filters.ownerId);
+      if (filters.leadSource) records = records.filter(r => r.Lead_Source === filters.leadSource);
+      if (filters.ownerId) records = records.filter(r => r.Owner?.id === filters.ownerId);
     }
 
     return {
@@ -172,6 +174,42 @@ export async function getProspectsList(
     }
     throw err;
   }
+}
+
+// ─── All prospects (cached) ──────────────────────────────────────────────────
+
+const ALL_PROSPECTS_CACHE_KEY = "all-prospects";
+const ALL_PROSPECTS_TTL_MIN = 30;
+
+/**
+ * Fetches every Prospect record from Zoho CRM — funded and non-funded —
+ * by walking all pages (200 records each) and accumulating results.
+ *
+ * The full list is cached in Redis for 30 minutes so repeated dashboard
+ * calls within that window hit cache instead of Zoho.
+ *
+ * @param accessToken  Zoho OAuth access token (used only on a cache miss).
+ */
+export async function getAllProspects(accessToken: string): Promise<ZohoProspect[]> {
+  const cached = await apiCache.getJSON<ZohoProspect[]>(ALL_PROSPECTS_CACHE_KEY);
+  if (cached) {
+    printLog('[Redis] Cache hit for all prospects');
+    return cached;
+  }
+
+  const all: ZohoProspect[] = [];
+  let page = 1;
+  let moreRecords = true;
+
+  while (moreRecords) {
+    const { data, info } = await getProspectsList(accessToken, page, 200, {});
+    all.push(...data);
+    moreRecords = info.more_records;
+    page += 1;
+  }
+
+  await apiCache.setJSON(ALL_PROSPECTS_CACHE_KEY, all, ALL_PROSPECTS_TTL_MIN);
+  return all;
 }
 
 // ─── Dashboard recent activity (global Notes) ────────────────────────────────
@@ -376,12 +414,12 @@ export async function createFundedInvestor(
     Prospect: { id: prospect.id },
     Investment_Date: new Date().toISOString().slice(0, 10),
   };
-  if (prospect.email)           payload.Email           = prospect.email;
-  if (prospect.phone)           payload.Phone           = prospect.phone;
-  if (prospect.companyEntity)   payload.Company_Entity  = prospect.companyEntity;
+  if (prospect.email) payload.Email = prospect.email;
+  if (prospect.phone) payload.Phone = prospect.phone;
+  if (prospect.companyEntity) payload.Company_Entity = prospect.companyEntity;
   if (prospect.committedAmount) payload.Amount_Invested = prospect.committedAmount;
-  if (prospect.growthTarget)    payload.Growth_Target   = prospect.growthTarget;
-  if (prospect.ownerId)         payload.Owner           = { id: prospect.ownerId };
+  if (prospect.growthTarget) payload.Growth_Target = prospect.growthTarget;
+  if (prospect.ownerId) payload.Owner = { id: prospect.ownerId };
 
   const { data: json } = await zohoApi.post<Resp>(accessToken, "/Funded_Investor", { data: [payload] });
   const result = json.data?.[0];
@@ -756,15 +794,15 @@ export async function getDashboardStatsFromZoho(
     page++;
   }
 
-  const active    = allRecords.filter(r => ACTIVE_ZOHO_STAGES.has(r.Pipeline_Stage ?? ""));
+  const active = allRecords.filter(r => ACTIVE_ZOHO_STAGES.has(r.Pipeline_Stage ?? ""));
   const committed = allRecords.filter(r => COMMITTED_ZOHO_STAGES.has(r.Pipeline_Stage ?? ""));
-  const funded    = allRecords.filter(r => r.Pipeline_Stage === "Funded");
+  const funded = allRecords.filter(r => r.Pipeline_Stage === "Funded");
 
   return {
     activePipelineCount: active.length,
-    pipelineValue:   active.reduce((s, r) => s + (r.Initial_Investment_Target ?? 0), 0),
-    committedValue:  committed.reduce((s, r) => s + (r.Committed_Amount ?? 0), 0),
-    fundedYTD:       funded.reduce((s, r) => s + (r.Committed_Amount ?? 0), 0),
+    pipelineValue: active.reduce((s, r) => s + (r.Initial_Investment_Target ?? 0), 0),
+    committedValue: committed.reduce((s, r) => s + (r.Committed_Amount ?? 0), 0),
+    fundedYTD: funded.reduce((s, r) => s + (r.Committed_Amount ?? 0), 0),
   };
 }
 

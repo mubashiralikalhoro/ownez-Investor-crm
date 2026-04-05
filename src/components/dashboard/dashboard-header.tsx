@@ -311,7 +311,7 @@ function LogActivitySheet({ prospects }: { prospects: PersonWithComputed[] }) {
               {/* Quick actions */}
               <div className="flex items-center gap-2">
                 <a
-                  href={`/person/${selectedPerson.id}`}
+                  href={`/prospect/${selectedPerson.id}`}
                   className="flex-1 rounded-full border border-navy/20 py-2 text-center text-sm font-medium text-navy hover:bg-muted/50 transition-colors"
                 >
                   Open profile

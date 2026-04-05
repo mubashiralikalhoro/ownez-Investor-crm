@@ -147,7 +147,7 @@ export function ReferrerSection({ referrer, referrals, personId }: ReferrerSecti
                 Other referrals
               </p>
               {referrals.map((r) => (
-                <Link key={r.id} href={`/person/${r.id}`} className="block text-xs text-navy hover:text-gold">
+                <Link key={r.id} href={`/prospect/${r.id}`} className="block text-xs text-navy hover:text-gold">
                   {r.fullName}
                 </Link>
               ))}

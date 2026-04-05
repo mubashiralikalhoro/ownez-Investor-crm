@@ -3,11 +3,11 @@
 import { useState } from "react";
 import { DrilldownSheet } from "./drilldown-sheet";
 import { formatCurrency } from "@/lib/format";
-import { demoData } from "@/data/store";
 import type { SourceROIRow, PersonWithComputed } from "@/lib/types";
 
 interface SourceROITableProps {
   rows: SourceROIRow[];
+  prospects: PersonWithComputed[];
 }
 
 interface DrilldownState {
@@ -16,11 +16,11 @@ interface DrilldownState {
   prospects: PersonWithComputed[];
 }
 
-export function SourceROITable({ rows }: SourceROITableProps) {
+export function SourceROITable({ rows, prospects }: SourceROITableProps) {
   const [drilldown, setDrilldown] = useState<DrilldownState>({ open: false, title: "", prospects: [] });
 
-  async function openDrilldown(source: string, label: string) {
-    const data = await demoData.getDrilldownProspects({ leadSource: source });
+  function openDrilldown(source: string, label: string) {
+    const data = prospects.filter(p => p.leadSource === source);
     setDrilldown({
       open: true,
       title: `${label} · ${data.length} prospect${data.length !== 1 ? "s" : ""}`,
@@ -30,7 +30,7 @@ export function SourceROITable({ rows }: SourceROITableProps) {
 
   return (
     <>
-      <div className="mt-6">
+      <div>
         <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Source ROI</h3>
         <div className="rounded-lg border overflow-hidden">
           <table className="w-full text-xs">
