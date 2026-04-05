@@ -33,3 +33,6 @@ test-results/
 
 .vercel
 .env*.local
+
+.deploy.sh
+.env

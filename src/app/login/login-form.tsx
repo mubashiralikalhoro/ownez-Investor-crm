@@ -4,24 +4,23 @@ import { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { Loader2 } from "lucide-react";
-import { hasAuthTokens } from "@/lib/auth-storage";
-
 function LoginFormInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const nextPath = searchParams.get("next") || "/";
+  const nextPath   = searchParams.get("next") || "/";
   const oauthError = searchParams.get("error");
 
-  const [loading, setLoading] = useState(false);
+  const [loading,  setLoading]  = useState(false);
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
-    queueMicrotask(() => {
-      if (hasAuthTokens()) {
+    // If there's already a valid session cookie, skip login.
+    void fetch("/api/auth/me", { credentials: "same-origin" }).then((res) => {
+      if (res.ok) {
         router.replace(nextPath.startsWith("/") ? nextPath : "/");
-        return;
+      } else {
+        setChecking(false);
       }
-      setChecking(false);
     });
   }, [router, nextPath]);
 

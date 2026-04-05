@@ -2,24 +2,21 @@
 
 import { useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { setAppUserProfile, setZohoAuthSession } from "@/lib/auth-storage";
+import { setAppUserProfile } from "@/lib/auth-storage";
 import type { UserRole } from "@/lib/types";
 
 function ZohoCallbackInner() {
-  const router = useRouter();
+  const router       = useRouter();
   const searchParams = useSearchParams();
 
   useEffect(() => {
     const error = searchParams.get("error");
-    const desc = searchParams.get("error_description");
-    const code = searchParams.get("code");
+    const desc  = searchParams.get("error_description");
+    const code  = searchParams.get("code");
     const state = searchParams.get("state");
 
     if (error) {
-      const q = new URLSearchParams({
-        error: desc || error,
-      });
-      router.replace(`/login?${q.toString()}`);
+      router.replace(`/login?error=${encodeURIComponent(desc || error)}`);
       return;
     }
 
@@ -33,27 +30,22 @@ function ZohoCallbackInner() {
     (async () => {
       try {
         const res = await fetch("/api/auth/zoho/token", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ code, state }),
+          method:      "POST",
+          headers:     { "Content-Type": "application/json" },
+          body:        JSON.stringify({ code, state }),
           credentials: "same-origin",
         });
 
         const data = (await res.json()) as {
-          error?: string;
+          error?:             string;
           error_description?: string;
-          access_token?: string;
-          refresh_token?: string;
-          api_domain?: string;
-          expires_at_ms?: number;
-          user?: { id: string; full_name?: string; email?: string } | null;
           app_user?: {
-            id: string;
-            email: string | null;
-            full_name: string;
-            role: UserRole;
-            zoho_role_id?: string | null;
-            zoho_role_name?: string | null;
+            id:                string;
+            email:             string | null;
+            full_name:         string;
+            role:              UserRole;
+            zoho_role_id?:     string | null;
+            zoho_role_name?:   string | null;
             zoho_profile_name?: string | null;
           };
           next?: string;
@@ -64,7 +56,7 @@ function ZohoCallbackInner() {
         if (!res.ok) {
           if (res.status === 403 && data.error === "role_not_allowed") {
             router.replace(
-              `/login?error=${encodeURIComponent(data.error_description ?? "Your Zoho role is not allowed to access this app.")}`
+              `/login?error=${encodeURIComponent(data.error_description ?? "Your Zoho role is not allowed.")}`
             );
           } else {
             router.replace(
@@ -74,19 +66,8 @@ function ZohoCallbackInner() {
           return;
         }
 
-        if (!data.access_token || !data.refresh_token || !data.api_domain) {
-          router.replace("/login?error=incomplete_token_response");
-          return;
-        }
-
-        setZohoAuthSession({
-          accessToken: data.access_token,
-          refreshToken: data.refresh_token,
-          apiDomain: data.api_domain,
-          expiresAtMs: data.expires_at_ms ?? Date.now() + 3600_000,
-          user: data.user ?? null,
-        });
-
+        // Store the user profile in localStorage for display purposes only.
+        // The actual auth tokens are in httpOnly cookies (set by the server above).
         if (data.app_user) {
           setAppUserProfile(data.app_user);
         }

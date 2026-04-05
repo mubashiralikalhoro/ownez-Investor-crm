@@ -44,21 +44,43 @@ type ZohoListApiResponse = {
   status?: string;
 };
 
+// ─── Allowlists for criteria injection protection ─────────────────────────────
+
+/** Valid Zoho CRM Pipeline_Stage picklist labels. */
+const VALID_PIPELINE_STAGES = new Set([
+  "Prospect", "Initial Contact", "Discovery", "Pitch", "Active Engagement",
+  "Soft Commit", "Commitment Processing", "KYC / Docs", "Funded", "Nurture", "Dead / Lost",
+]);
+
+/** Valid Zoho CRM Lead_Source picklist labels. */
+const VALID_LEAD_SOURCES = new Set([
+  "Velocis Network", "CPA Referral", "Legacy Event", "LinkedIn", "Ken - DBJ List",
+  "Ken - Event Follow-up", "Tolleson WM", "M&A Attorney", "Cold Outreach", "Other",
+]);
+
+/** Zoho CRM record IDs are numeric strings. */
+const ZOHO_ID_RE = /^\d+$/;
+
 /**
  * Build Zoho criteria string from filter fields.
- * Format: ((Field1:operator:value1)and(Field2:operator:value2))
+ * All values are validated against allowlists before interpolation to prevent
+ * criteria injection (crafted values that break out of the clause and inject new conditions).
+ * Invalid values are silently ignored — the filter simply isn't applied.
  */
 function buildCriteria(filters: ProspectFilters): string | undefined {
   const parts: string[] = [];
 
-  if (filters.pipelineStage) {
+  if (filters.pipelineStage && VALID_PIPELINE_STAGES.has(filters.pipelineStage)) {
     parts.push(`(Pipeline_Stage:equals:${filters.pipelineStage})`);
   }
-  if (filters.leadSource) {
+  if (filters.leadSource && VALID_LEAD_SOURCES.has(filters.leadSource)) {
     parts.push(`(Lead_Source:equals:${filters.leadSource})`);
   }
-  if (filters.ownerId) {
+  if (filters.ownerId && ZOHO_ID_RE.test(filters.ownerId)) {
     parts.push(`(Owner:equals:${filters.ownerId})`);
+  }
+  if (filters.excludeFunded) {
+    parts.push(`(Pipeline_Stage:not_equal:Funded)`);
   }
 
   if (parts.length === 0) return undefined;
@@ -86,10 +108,14 @@ export async function getProspectsList(
   const clampedPage = Math.max(1, page);
   const clampedPageSize = Math.min(200, Math.max(1, pageSize));
 
-  const criteria = buildCriteria(filters);
   // Zoho requires at least 2 characters for word search — ignore shorter terms.
   const searchWord = (filters.search?.trim() ?? "").length >= 2 ? filters.search!.trim() : undefined;
   const hasSearch = Boolean(searchWord);
+
+  // Zoho /search does NOT support word + criteria simultaneously.
+  // When a word search is active we send only `word` and filter client-side.
+  // When there is no word search we can safely use criteria.
+  const criteria = hasSearch ? undefined : buildCriteria(filters);
   const useSearchEndpoint = hasSearch || Boolean(criteria);
 
   const endpoint = useSearchEndpoint ? "/Prospect/search" : "/Prospect";
@@ -113,8 +139,18 @@ export async function getProspectsList(
       );
     }
 
+    // When a word search was active we couldn't use criteria, so apply
+    // any remaining filters (e.g. excludeFunded) on the returned records.
+    let records = json.data ?? [];
+    if (hasSearch) {
+      if (filters.excludeFunded) records = records.filter(r => r.Pipeline_Stage !== "Funded");
+      if (filters.pipelineStage) records = records.filter(r => r.Pipeline_Stage === filters.pipelineStage);
+      if (filters.leadSource)    records = records.filter(r => r.Lead_Source    === filters.leadSource);
+      if (filters.ownerId)       records = records.filter(r => r.Owner?.id      === filters.ownerId);
+    }
+
     return {
-      data: json.data ?? [],
+      data: records,
       info: json.info ?? {
         page: clampedPage,
         per_page: clampedPageSize,
@@ -272,6 +308,324 @@ export async function getRecentEvents(
     }
     return [];
   }
+}
+
+// ─── Shared write-response helper type ───────────────────────────────────────
+
+type ZohoWriteResponse = {
+  data?: Array<{
+    code: string;
+    status: string;
+    message?: string;
+    details?: Record<string, unknown>;
+  }>;
+};
+
+// ─── Update Prospect ─────────────────────────────────────────────────────────
+
+/**
+ * PUT /Prospect/{id} — patch one or more fields on an existing Prospect record.
+ * Only the keys present in `fields` are sent; all others are left unchanged.
+ */
+export async function updateProspectInZoho(
+  accessToken: string,
+  id: string,
+  fields: Record<string, unknown>
+): Promise<void> {
+  const { data: json } = await zohoApi.put<ZohoWriteResponse>(
+    accessToken,
+    `/Prospect/${id}`,
+    { data: [fields] }
+  );
+  const result = json.data?.[0];
+  if (result?.status !== "success") {
+    throw new Error(
+      `Zoho prospect update failed: [${result?.code ?? "UNKNOWN"}] ${result?.message ?? ""}`
+    );
+  }
+}
+
+// ─── Funded Investor ──────────────────────────────────────────────────────────
+
+/**
+ * POST /Funded_Investor — create a Funded Investor record linked to a Prospect.
+ *
+ * Required by Zoho: Name, Prospect.id
+ * Optional fields mapped from the prospect: Email, Phone, Company_Entity,
+ *   Amount_Invested (← Committed_Amount), Growth_Target, Investment_Date (today).
+ *
+ * Returns the new record's Zoho ID.
+ */
+export async function createFundedInvestor(
+  accessToken: string,
+  prospect: {
+    id: string;
+    name: string;
+    email?: string | null;
+    phone?: string | null;
+    companyEntity?: string | null;
+    committedAmount?: number | null;
+    growthTarget?: number | null;
+    ownerId?: string | null;
+  }
+): Promise<string> {
+  type Resp = { data?: Array<{ code: string; status: string; message?: string; details?: { id?: string } }> };
+
+  const payload: Record<string, unknown> = {
+    Name: prospect.name,
+    Prospect: { id: prospect.id },
+    Investment_Date: new Date().toISOString().slice(0, 10),
+  };
+  if (prospect.email)           payload.Email           = prospect.email;
+  if (prospect.phone)           payload.Phone           = prospect.phone;
+  if (prospect.companyEntity)   payload.Company_Entity  = prospect.companyEntity;
+  if (prospect.committedAmount) payload.Amount_Invested = prospect.committedAmount;
+  if (prospect.growthTarget)    payload.Growth_Target   = prospect.growthTarget;
+  if (prospect.ownerId)         payload.Owner           = { id: prospect.ownerId };
+
+  const { data: json } = await zohoApi.post<Resp>(accessToken, "/Funded_Investor", { data: [payload] });
+  const result = json.data?.[0];
+  if (result?.status !== "success" || !result?.details?.id) {
+    throw new Error(
+      `Zoho Funded Investor create failed: [${result?.code ?? "UNKNOWN"}] ${result?.message ?? ""}`
+    );
+  }
+  return result.details.id;
+}
+
+// ─── Notes CRUD ───────────────────────────────────────────────────────────────
+
+/**
+ * POST /Notes — create a note linked to a Prospect record.
+ * Returns a minimal ZohoNote object (server may not echo all fields).
+ */
+export async function createProspectNote(
+  accessToken: string,
+  prospectId: string,
+  title: string,
+  content: string
+): Promise<ZohoNote> {
+  type Resp = { data?: Array<{ code: string; status: string; message?: string; details?: { id?: string } }> };
+  // Zoho v8 reference format: POST /Notes with Parent_Id as a JSON object.
+  // module.id (org-specific) is omitted — api_name alone is sufficient.
+  const notePayload: Record<string, unknown> = {
+    Note_Content: content.trim(),
+    Parent_Id: {
+      module: { api_name: "Prospect" },
+      id: prospectId,
+    },
+  };
+  if (title.trim()) notePayload.Note_Title = title.trim();
+  const { data: json } = await zohoApi.post<Resp>(
+    accessToken,
+    "/Notes",
+    { data: [notePayload] }
+  );
+  const result = json.data?.[0];
+  if (result?.status !== "success" || !result?.details?.id) {
+    throw new Error(
+      `Zoho note create failed: [${result?.code ?? "UNKNOWN"}] ${result?.message ?? ""}`
+    );
+  }
+  const now = new Date().toISOString();
+  return {
+    id: result.details.id,
+    Note_Title: title.trim() || null,
+    Note_Content: content.trim(),
+    Created_Time: now,
+    Modified_Time: now,
+    Created_By: null,
+    Modified_By: null,
+    Owner: null,
+    Parent_Id: null,
+  };
+}
+
+/**
+ * PUT /Notes/{noteId} — overwrite title and/or content.
+ */
+export async function updateProspectNote(
+  accessToken: string,
+  noteId: string,
+  title: string,
+  content: string
+): Promise<void> {
+  const { data: json } = await zohoApi.put<ZohoWriteResponse>(
+    accessToken,
+    `/Notes/${noteId}`,
+    { data: [{ Note_Title: title.trim() || null, Note_Content: content.trim() }] }
+  );
+  const result = json.data?.[0];
+  if (result?.status !== "success") {
+    throw new Error(
+      `Zoho note update failed: [${result?.code ?? "UNKNOWN"}] ${result?.message ?? ""}`
+    );
+  }
+}
+
+/**
+ * DELETE /Notes/{noteId}
+ */
+export async function deleteProspectNote(
+  accessToken: string,
+  noteId: string
+): Promise<void> {
+  const { data: json } = await zohoApi.delete<ZohoWriteResponse>(
+    accessToken,
+    `/Notes/${noteId}`
+  );
+  const result = json.data?.[0];
+  if (result?.status !== "success") {
+    throw new Error(
+      `Zoho note delete failed: [${result?.code ?? "UNKNOWN"}] ${result?.message ?? ""}`
+    );
+  }
+}
+
+// ─── Attachment delete ────────────────────────────────────────────────────────
+
+/**
+ * DELETE /Prospect/{id}/Attachments/{attachmentId}
+ */
+export async function deleteProspectAttachmentFromZoho(
+  accessToken: string,
+  prospectId: string,
+  attachmentId: string
+): Promise<void> {
+  const { data: json } = await zohoApi.delete<ZohoWriteResponse>(
+    accessToken,
+    `/Prospect/${prospectId}/Attachments/${attachmentId}`
+  );
+  const result = json.data?.[0];
+  if (result?.status !== "success") {
+    throw new Error(
+      `Zoho attachment delete failed: [${result?.code ?? "UNKNOWN"}] ${result?.message ?? ""}`
+    );
+  }
+}
+
+// ─── Create Prospect ─────────────────────────────────────────────────────────
+
+/**
+ * Internal lead-source key → Zoho picklist label (must match the CRM dropdown).
+ * Unmapped keys are title-cased as a fallback.
+ */
+const INTERNAL_TO_ZOHO_LEAD_SOURCE: Record<string, string> = {
+  velocis_network: "Velocis Network",
+  cpa_referral: "CPA Referral",
+  legacy_event: "Legacy Event",
+  linkedin: "LinkedIn",
+  ken_dbj_list: "Ken - DBJ List",
+  ken_event_followup: "Ken - Event Follow-up",
+  tolleson_wm: "Tolleson WM",
+  ma_attorney: "M&A Attorney",
+  cold_outreach: "Cold Outreach",
+  other: "Other",
+};
+
+function toZohoLeadSource(key: string): string {
+  return (
+    INTERNAL_TO_ZOHO_LEAD_SOURCE[key] ??
+    key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+  );
+}
+
+export type CreateProspectInput = {
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  leadSourceKey: string;
+  nextAction?: string | null;
+  nextActionDate?: string | null;
+  ownerZohoId?: string | null;
+};
+
+export type CreateProspectResult = {
+  id: string;
+  name: string;
+};
+
+type ZohoCreateResponse = {
+  data?: Array<{
+    code: string;
+    status: string;
+    message: string;
+    details?: { id?: string };
+  }>;
+};
+
+/**
+ * POST /Prospect — create a single new Prospect record in Zoho CRM.
+ * Always sets Pipeline_Stage to "Prospect".
+ */
+export async function createProspectInZoho(
+  accessToken: string,
+  input: CreateProspectInput
+): Promise<CreateProspectResult> {
+  const record: Record<string, unknown> = {
+    Name: input.name.trim(),
+    Pipeline_Stage: "Prospect",
+    Lead_Source: toZohoLeadSource(input.leadSourceKey),
+  };
+
+  if (input.email?.trim()) record.Email = input.email.trim();
+  if (input.phone?.trim()) record.Phone = input.phone.trim();
+  if (input.nextAction?.trim()) record.Next_Action = input.nextAction.trim();
+  if (input.nextActionDate?.trim()) record.Next_Action_Date = input.nextActionDate.trim();
+  if (input.ownerZohoId?.trim()) record.Owner = { id: input.ownerZohoId.trim() };
+
+  const { data: json } = await zohoApi.post<ZohoCreateResponse>(accessToken, "/Prospect", {
+    data: [record],
+  });
+
+  const result = json.data?.[0];
+  if (!result || result.status !== "success" || !result.details?.id) {
+    throw new Error(
+      `Zoho create prospect failed: [${result?.code ?? "UNKNOWN"}] ${result?.message ?? "No ID returned"}`
+    );
+  }
+
+  return { id: result.details.id, name: input.name.trim() };
+}
+
+// ─── People page: full prospect list (all stages) ────────────────────────────
+
+/**
+ * Fetches ALL Prospect records from Zoho for the People page.
+ * No stage criteria — returns every prospect including Dead, Funded, Nurture.
+ * Loops all pages (max 10 × 200 = 2 000 records) to ensure nothing is missed.
+ *
+ * Custom query:
+ *   GET /Prospect?fields={PROSPECT_FIELDS}&per_page=200&page=N
+ *   Repeats while info.more_records === true
+ */
+export async function getAllProspectsForPeople(
+  accessToken: string
+): Promise<ZohoProspect[]> {
+  const all: ZohoProspect[] = [];
+  let page = 1;
+
+  while (page <= 10) {
+    const { data: json } = await zohoApi.get<ZohoListApiResponse>(
+      accessToken,
+      "/Prospect",
+      { fields: PROSPECT_FIELDS, per_page: 200, page }
+    );
+
+    if (json.status === "error" || json.code) {
+      throw new Error(
+        `Zoho people list error: [${json.code ?? "UNKNOWN"}] ${json.message ?? ""}`
+      );
+    }
+
+    const records = json.data ?? [];
+    all.push(...records);
+
+    if (!json.info?.more_records || records.length === 0) break;
+    page++;
+  }
+
+  return all;
 }
 
 // ─── Dashboard action-queue query ────────────────────────────────────────────

@@ -1,79 +1,68 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
-  Phone,
-  Mail,
-  Zap,
-  AlertCircle,
-  Loader2,
-  ChevronDown,
-  ChevronRight,
-  PhoneCall,
-  PhoneIncoming,
-  PhoneOutgoing,
-  CalendarDays,
-  FileText,
-  Pencil,
-  ArrowRight,
-  Bot,
-  Plus,
-  Cpu,
-  Paperclip,
-  CheckSquare,
-  Clock,
-  CheckCircle2,
-  CircleDot,
-  TrendingUp,
-  DollarSign,
-  User,
+  Phone, Mail, Zap, AlertCircle, Loader2, ChevronDown, ChevronRight,
+  PhoneCall, PhoneIncoming, PhoneOutgoing, CalendarDays, FileText,
+  Pencil, ArrowRight, Bot, Paperclip, CheckSquare, Clock,
+  CheckCircle2, CircleDot, TrendingUp, DollarSign, User,
+  X, Trash2, Upload, Check, Plus,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { NoteEditor, NoteContent } from "@/components/ui/note-editor";
 import { formatCurrency, formatDate, formatRelativeDate, formatTime } from "@/lib/format";
-import { refreshZohoAccessToken } from "@/lib/auth-storage";
 import {
   PROSPECT_PROGRESSION_STAGES,
+  PROSPECT_SPECIAL_STAGES,
   PROSPECT_PROFILE_FIELDS,
   getProspectStageIndex,
   isSpecialProspectStage,
 } from "@/lib/prospect-config";
 import type {
-  ZohoProspectDetail,
-  ZohoNote,
-  ZohoTimelineEvent,
-  ZohoEmail,
-  ZohoCall,
-  ZohoEvent,
-  ZohoStageHistory,
-  ZohoAttachment,
-  ZohoTask,
-  ZohoFundedRecord,
+  ZohoProspectDetail, ZohoNote, ZohoTimelineEvent, ZohoEmail,
+  ZohoCall, ZohoEvent, ZohoStageHistory, ZohoAttachment, ZohoTask, ZohoFundedRecord,
 } from "@/types";
+import { getAppUserProfile } from "@/lib/auth-storage";
+
+// ─── Auth helpers ─────────────────────────────────────────────────────────────
+
+function getCurrentUserRef(): { id: string; name: string } | null {
+  const u = getAppUserProfile();
+  if (u?.id && u.full_name) return { id: u.id, name: u.full_name };
+  return null;
+}
+
+// ─── Shared API helper ────────────────────────────────────────────────────────
+
+async function makeRequest(url: string, options: RequestInit = {}): Promise<Response> {
+  const doFetch = () =>
+    fetch(url, { ...options, credentials: "same-origin" });
+
+  let res = await doFetch();
+  if (res.status === 401) {
+    const ok = (await fetch("/api/auth/zoho/refresh", { method: "POST", credentials: "same-origin" })).ok;
+    if (!ok) throw new Error("Session expired. Please log in again.");
+    res = await doFetch();
+  }
+  return res;
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function getToken(): string | null {
-  return typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
-}
-
-function formatFieldValue(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  value: any,
-  type: string
-): string | null {
+function formatFieldValue(value: unknown, type: string): string | null {
   if (value === null || value === undefined || value === "" || value === "-None-") return null;
   switch (type) {
-    case "currency":   return typeof value === "number" ? formatCurrency(value) : null;
+    case "currency":     return typeof value === "number" ? formatCurrency(value) : null;
     case "integer_days": return typeof value === "number" ? `${value}d` : null;
     case "date":
-    case "datetime":   return formatDate(value as string);
+    case "datetime":     return formatDate(value as string);
     case "owner":
-    case "lookup":     return (value as { name: string }).name ?? null;
-    case "boolean":    return (value as boolean) ? "Yes" : "No";
-    default:           return String(value);
+    case "lookup":       return (value as { name: string }).name ?? null;
+    case "boolean":      return (value as boolean) ? "Yes" : "No";
+    default:             return String(value);
   }
 }
 
@@ -83,16 +72,276 @@ function formatAuditedTime(iso: string): string {
   return `${formatDate(iso)} ${formatTime(timePart)}`;
 }
 
+// ─── Inline Edit Components ───────────────────────────────────────────────────
+
+interface InlineSaveProps {
+  saving: boolean;
+  onSave: () => void;
+  onCancel: () => void;
+  error: string | null;
+}
+
+function InlineSaveBar({ saving, onSave, onCancel, error }: InlineSaveProps) {
+  return (
+    <span className="inline-flex flex-col gap-1">
+      <span className="inline-flex items-center gap-1.5">
+        <button
+          onClick={onSave}
+          disabled={saving}
+          className="inline-flex items-center gap-1 rounded-full bg-healthy-green px-3 py-1.5 text-[11px] font-semibold text-white shadow-sm hover:bg-healthy-green/85 active:scale-95 disabled:opacity-50 transition-all"
+        >
+          {saving
+            ? <Loader2 size={11} className="animate-spin" />
+            : <Check size={11} strokeWidth={2.5} />}
+          Save
+        </button>
+        <button
+          onClick={onCancel}
+          disabled={saving}
+          className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-3 py-1.5 text-[11px] font-medium text-muted-foreground hover:border-alert-red/50 hover:text-alert-red active:scale-95 disabled:opacity-50 transition-all"
+        >
+          <X size={11} strokeWidth={2} />
+          Cancel
+        </button>
+      </span>
+      {error && (
+        <span className="text-[10px] font-medium text-alert-red flex items-center gap-1">
+          <X size={9} className="shrink-0" />{error}
+        </span>
+      )}
+    </span>
+  );
+}
+
+function InlineTextField({
+  value, label = "value", onSave, inputType = "text", className = "", large = false,
+}: {
+  value: string | null | undefined;
+  label?: string;
+  onSave: (val: string | null) => Promise<void>;
+  inputType?: "text" | "email" | "tel";
+  className?: string;
+  large?: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value ?? "");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const start = () => { setDraft(value ?? ""); setErr(null); setEditing(true); };
+  const cancel = () => { setEditing(false); setErr(null); };
+  const save = async () => {
+    if (saving) return;
+    setSaving(true); setErr(null);
+    try { await onSave(draft.trim() || null); setEditing(false); }
+    catch (e) { setErr(e instanceof Error ? e.message : "Save failed"); }
+    finally { setSaving(false); }
+  };
+
+  if (!editing) {
+    return (
+      <span
+        className={`group/f cursor-pointer inline-flex items-center gap-1.5 rounded px-0.5 -mx-0.5 hover:bg-gold/8 transition-colors ${className}`}
+        onClick={start}
+      >
+        {value
+          ? <span className={large ? "text-lg md:text-xl font-semibold text-navy" : ""}>{value}</span>
+          : <span className="text-muted-foreground/40 italic text-xs">Add {label}</span>}
+        <Pencil size={10} className="opacity-0 group-hover/f:opacity-30 transition-opacity shrink-0" />
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex flex-wrap items-center gap-2">
+      <input
+        type={inputType}
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        onKeyDown={e => { if (e.key === "Enter") save(); if (e.key === "Escape") cancel(); }}
+        autoFocus
+        className={`border border-gold/50 rounded-md px-2.5 py-1.5 text-navy bg-white focus:outline-none focus:ring-2 focus:ring-gold/40 shadow-sm ${
+          large ? "text-lg font-semibold w-56 md:w-72" : "text-sm w-44 md:w-56"
+        }`}
+      />
+      <InlineSaveBar saving={saving} onSave={save} onCancel={cancel} error={err} />
+    </span>
+  );
+}
+
+function InlineCurrencyField({
+  value, label = "amount", onSave,
+}: {
+  value: number | null | undefined;
+  label?: string;
+  onSave: (val: number | null) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value != null ? String(value) : "");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const start = () => { setDraft(value != null ? String(value) : ""); setErr(null); setEditing(true); };
+  const cancel = () => { setEditing(false); setErr(null); };
+  const save = async () => {
+    if (saving) return;
+    const raw = draft.trim().replace(/[$,\s]/g, "");
+    const parsed = raw ? parseFloat(raw) : null;
+    if (raw && (parsed === null || isNaN(parsed))) { setErr("Enter a valid number"); return; }
+    setSaving(true); setErr(null);
+    try { await onSave(parsed); setEditing(false); }
+    catch (e) { setErr(e instanceof Error ? e.message : "Save failed"); }
+    finally { setSaving(false); }
+  };
+
+  if (!editing) {
+    return (
+      <span
+        className="group/cf cursor-pointer inline-flex items-center gap-1 hover:bg-gold/8 rounded px-0.5 -mx-0.5 transition-colors"
+        onClick={start}
+      >
+        {value != null
+          ? <span className="text-sm font-semibold text-navy tabular-nums">{formatCurrency(value)}</span>
+          : <span className="text-xs text-muted-foreground/40 italic">Not set</span>}
+        <Pencil size={9} className="opacity-0 group-hover/cf:opacity-30 transition-opacity shrink-0" />
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex flex-wrap items-center gap-2">
+      <span className="inline-flex items-center gap-1.5 border border-gold/50 rounded-md px-2.5 py-1.5 bg-white shadow-sm focus-within:ring-2 focus-within:ring-gold/40">
+        <span className="text-sm text-muted-foreground font-medium">$</span>
+        <input
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter") save(); if (e.key === "Escape") cancel(); }}
+          autoFocus
+          placeholder={label}
+          className="text-sm font-semibold text-navy bg-transparent focus:outline-none w-28"
+        />
+      </span>
+      <InlineSaveBar saving={saving} onSave={save} onCancel={cancel} error={err} />
+    </span>
+  );
+}
+
+function InlineDateField({
+  value, label = "date", onSave,
+}: {
+  value: string | null | undefined;
+  label?: string;
+  onSave: (val: string | null) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value ?? "");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const start = () => { setDraft(value ?? ""); setErr(null); setEditing(true); };
+  const cancel = () => { setEditing(false); setErr(null); };
+  const save = async () => {
+    if (saving) return;
+    setSaving(true); setErr(null);
+    try { await onSave(draft || null); setEditing(false); }
+    catch (e) { setErr(e instanceof Error ? e.message : "Save failed"); }
+    finally { setSaving(false); }
+  };
+
+  if (!editing) {
+    return (
+      <span
+        className="group/df cursor-pointer inline-flex items-center gap-1 hover:bg-gold/8 rounded px-0.5 -mx-0.5 transition-colors"
+        onClick={start}
+      >
+        {value
+          ? <span className="text-sm font-medium text-navy">{formatRelativeDate(value)} · {value}</span>
+          : <span className="text-xs text-muted-foreground/40 italic">Add {label}</span>}
+        <Pencil size={9} className="opacity-0 group-hover/df:opacity-30 transition-opacity shrink-0" />
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex flex-wrap items-center gap-2">
+      <input
+        type="date"
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        onKeyDown={e => { if (e.key === "Escape") cancel(); }}
+        autoFocus
+        className="border border-gold/50 rounded-md px-2.5 py-1.5 text-sm text-navy bg-white focus:outline-none focus:ring-2 focus:ring-gold/40 shadow-sm"
+      />
+      <InlineSaveBar saving={saving} onSave={save} onCancel={cancel} error={err} />
+    </span>
+  );
+}
+
+function InlineLeadSourceField({
+  value, onSave,
+}: {
+  value: string | null | undefined;
+  onSave: (val: string | null) => Promise<void>;
+}) {
+  const LEAD_SOURCE_OPTIONS = [
+    "Velocis Network", "CPA Referral", "Legacy Event", "LinkedIn",
+    "Ken - DBJ List", "Ken - Event Follow-up", "Tolleson WM",
+    "M&A Attorney", "Cold Outreach", "Other",
+  ];
+
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value ?? "");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const start = () => { setDraft(value ?? ""); setErr(null); setEditing(true); };
+  const cancel = () => { setEditing(false); setErr(null); };
+  const save = async () => {
+    if (saving) return;
+    setSaving(true); setErr(null);
+    try { await onSave(draft || null); setEditing(false); }
+    catch (e) { setErr(e instanceof Error ? e.message : "Save failed"); }
+    finally { setSaving(false); }
+  };
+
+  if (!editing) {
+    return (
+      <span
+        className="group/ls cursor-pointer inline-flex items-center gap-1 hover:bg-gold/8 rounded px-0.5 -mx-0.5 transition-colors"
+        onClick={start}
+      >
+        {value
+          ? <span className="text-xs font-medium text-navy">{value}</span>
+          : <span className="text-xs text-muted-foreground/40 italic">Not set</span>}
+        <Pencil size={9} className="opacity-0 group-hover/ls:opacity-30 transition-opacity shrink-0" />
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex flex-wrap items-center gap-2">
+      <select
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        autoFocus
+        className="border border-gold/50 rounded-md px-2.5 py-1.5 text-xs text-navy bg-white focus:outline-none focus:ring-2 focus:ring-gold/40 shadow-sm"
+      >
+        <option value="">— Select —</option>
+        {LEAD_SOURCE_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+      </select>
+      <InlineSaveBar saving={saving} onSave={save} onCancel={cancel} error={err} />
+    </span>
+  );
+}
+
 // ─── Unified Activity ─────────────────────────────────────────────────────────
-// All activity sources merged into one sorted list.
 
 type ActivityKind = "call" | "email" | "meeting" | "note" | "update" | "stage_change" | "automation";
 
 interface UnifiedActivity {
   id: string;
   kind: ActivityKind;
-  sortTime: number;  // ms epoch for sorting
-  // raw data
+  sortTime: number;
   call?: ZohoCall;
   email?: ZohoEmail;
   event?: ZohoEvent;
@@ -101,10 +350,8 @@ interface UnifiedActivity {
 }
 
 function buildUnifiedTimeline(
-  timeline: ZohoTimelineEvent[],
-  emails: ZohoEmail[],
-  calls: ZohoCall[],
-  events: ZohoEvent[],
+  timeline: ZohoTimelineEvent[], emails: ZohoEmail[],
+  calls: ZohoCall[], events: ZohoEvent[],
 ): UnifiedActivity[] {
   const items: UnifiedActivity[] = [];
 
@@ -114,17 +361,14 @@ function buildUnifiedTimeline(
     const kind: ActivityKind = isStage ? "stage_change" : isAuto ? "automation" : "update";
     items.push({ id: `tl-${t.id}`, kind, sortTime: new Date(t.audited_time).getTime(), timeline: t });
   });
-
   emails.forEach((e) => {
     const ts = e.sent_time ?? e.date_time ?? null;
     items.push({ id: `em-${e.message_id}`, kind: "email", sortTime: ts ? new Date(ts).getTime() : 0, email: e });
   });
-
   calls.forEach((c) => {
     const ts = c.Call_Start_Time ?? c.Created_Time ?? null;
     items.push({ id: `ca-${c.id}`, kind: "call", sortTime: ts ? new Date(ts).getTime() : 0, call: c });
   });
-
   events.forEach((ev) => {
     const ts = ev.Start_DateTime ?? ev.Created_Time ?? null;
     items.push({ id: `ev-${ev.id}`, kind: "meeting", sortTime: ts ? new Date(ts).getTime() : 0, event: ev });
@@ -133,33 +377,19 @@ function buildUnifiedTimeline(
   return items.sort((a, b) => b.sortTime - a.sortTime);
 }
 
-// Color per activity kind (matches ACTIVITY_TYPES in constants.ts)
 const KIND_COLOR: Record<ActivityKind, string> = {
-  call:         "#2563eb",  // blue — matches activity-call
-  email:        "#7c3aed",  // purple — matches activity-email
-  meeting:      "#0891b2",  // cyan — matches activity-meeting
-  note:         "#6b7280",  // gray — matches activity-note
-  update:       "#1e3a5f",  // navy for manual CRM
-  stage_change: "#f59e0b",  // gold
-  automation:   "#9ca3af",  // light gray
+  call: "#2563eb", email: "#7c3aed", meeting: "#0891b2", note: "#6b7280",
+  update: "#1e3a5f", stage_change: "#f59e0b", automation: "#9ca3af",
 };
-
 const KIND_LABEL: Record<ActivityKind, string> = {
-  call:         "Call",
-  email:        "Email",
-  meeting:      "Meeting",
-  note:         "Note",
-  update:       "Updated",
-  stage_change: "Stage Change",
-  automation:   "Automation",
+  call: "Call", email: "Email", meeting: "Meeting", note: "Note",
+  update: "Updated", stage_change: "Stage Change", automation: "Automation",
 };
-
-// Source pill metadata
 const SOURCE_META: Record<string, { label: string; pill: string }> = {
-  crm_ui:          { label: "CRM UI",    pill: "bg-navy/10 text-navy" },
+  crm_ui: { label: "CRM UI", pill: "bg-navy/10 text-navy" },
   custom_function: { label: "Automation", pill: "bg-gold/15 text-gold" },
-  workflow:        { label: "Workflow",   pill: "bg-blue-500/10 text-blue-600" },
-  api:             { label: "API",        pill: "bg-muted text-muted-foreground" },
+  workflow: { label: "Workflow", pill: "bg-blue-500/10 text-blue-600" },
+  api: { label: "API", pill: "bg-muted text-muted-foreground" },
 };
 
 function getSourceMeta(source?: string) {
@@ -180,22 +410,68 @@ function formatTimelineFieldValue(value: string, dataType?: string): string {
   return value;
 }
 
-// ─── 1. Stage Bar (read-only, clickable to expand — same UX as person page) ──
+function formatTimeOnly(iso: string): string {
+  return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+}
 
-function ProspectStageBar({ stage }: { stage: string | null }) {
-  const [expanded, setExpanded] = useState(false);
+// ─── 1. Stage Bar (interactive — click to change stage) ──────────────────────
+
+interface StageChangePayload {
+  newStage: string;
+  nextAction?: string;
+  nextActionDate?: string;
+  reason?: string;
+}
+
+function ProspectStageBar({
+  stage,
+  onStageChange,
+}: {
+  stage: string | null;
+  onStageChange?: (payload: StageChangePayload) => Promise<void>;
+}) {
+  const [expanded,       setExpanded]       = useState(false);
+  const [pending,        setPending]        = useState<string | null>(null);
+  const [nextAction,     setNextAction]     = useState("");
+  const [nextActionDate, setNextActionDate] = useState("");
+  const [reason,         setReason]         = useState("");
+  const [changing,       setChanging]       = useState(false);
+  const [changeErr,      setChangeErr]      = useState<string | null>(null);
+
   const isSpecial = isSpecialProspectStage(stage);
   const currentIdx = getProspectStageIndex(stage);
   const specialMeta = isSpecial
-    ? stage === "Dead / Lost"
-      ? { label: "Dead / Lost", color: "text-alert-red" }
-      : { label: "Nurture", color: "text-gold" }
+    ? stage === "Dead / Lost" ? { label: "Dead / Lost", color: "text-alert-red" }
+    : { label: "Nurture", color: "text-gold" }
     : null;
+
+  const pendingIsSpecial = pending && PROSPECT_SPECIAL_STAGES.some(s => s.value === pending);
+
+  const resetForm = () => {
+    setPending(null); setNextAction(""); setNextActionDate(""); setReason(""); setChangeErr(null);
+  };
+
+  const confirm = async () => {
+    if (!pending || !onStageChange || changing) return;
+    setChanging(true); setChangeErr(null);
+    try {
+      await onStageChange({
+        newStage: pending,
+        nextAction:     nextAction.trim()     || undefined,
+        nextActionDate: nextActionDate.trim() || undefined,
+        reason:         reason.trim()         || undefined,
+      });
+      resetForm(); setExpanded(false);
+    } catch (e) {
+      setChangeErr(e instanceof Error ? e.message : "Stage change failed");
+    } finally {
+      setChanging(false);
+    }
+  };
 
   return (
     <div className="px-4 pt-4 pb-2">
-      {/* Dot progression — clickable (same as StageBar) */}
-      <div className="cursor-pointer group" onClick={() => setExpanded(!expanded)}>
+      <div className="cursor-pointer group" onClick={() => !pending && setExpanded(!expanded)}>
         <div className="flex items-center gap-0 px-1">
           {PROSPECT_PROGRESSION_STAGES.map((s, idx) => {
             const isActive = s.value === stage;
@@ -207,8 +483,7 @@ function ProspectStageBar({ stage }: { stage: string | null }) {
                   <div className={`rounded-full transition-all ${
                     isActive
                       ? "h-3.5 w-3.5 bg-gold shadow-[0_0_0_3px_rgba(232,186,48,0.15)]"
-                      : isPast
-                      ? "h-2.5 w-2.5 bg-navy"
+                      : isPast ? "h-2.5 w-2.5 bg-navy"
                       : "h-2.5 w-2.5 border-2 border-muted-foreground/25 bg-transparent"
                   }`} />
                   {isActive && !isSpecial && (
@@ -227,40 +502,136 @@ function ProspectStageBar({ stage }: { stage: string | null }) {
         {!isSpecial && <div className="h-5" />}
 
         <p className="text-[9px] text-transparent group-hover:text-muted-foreground/40 transition-colors text-center mt-0.5 select-none">
-          {expanded ? "collapse" : "view stages"}
+          {expanded ? "collapse" : onStageChange ? "click stage to change" : "view stages"}
         </p>
       </div>
 
-      {/* Expanded stage list — read-only, matches person page StageBar expanded view */}
       {expanded && (
         <div className="mt-3 rounded-lg border bg-card p-3 space-y-1.5">
           {PROSPECT_PROGRESSION_STAGES.map((s, idx) => {
             const isActive = s.value === stage;
             const isPast = !isSpecial && idx < currentIdx;
+            const isPending = pending === s.value;
+            const canClick = !!onStageChange && s.value !== stage;
+
             return (
-              <div
+              <button
                 key={s.value}
-                className={`w-full flex items-center gap-3 rounded-md px-3 py-2 ${
-                  isActive ? "bg-gold text-navy" : isPast ? "bg-navy/5 text-navy" : "text-muted-foreground"
+                disabled={!canClick || changing}
+                onClick={() => canClick && setPending(isPending ? null : s.value)}
+                className={`w-full flex items-center gap-3 rounded-md px-3 py-2 transition-colors ${
+                  isPending ? "bg-gold/20 border border-gold/40"
+                  : isActive ? "bg-gold text-navy"
+                  : isPast ? "bg-navy/5 text-navy hover:bg-navy/10"
+                  : canClick ? "text-muted-foreground hover:bg-muted/50"
+                  : "text-muted-foreground opacity-60 cursor-default"
                 }`}
               >
                 <span className={`text-[10px] tabular-nums w-4 text-center shrink-0 ${isActive ? "font-bold" : "font-medium opacity-50"}`}>
                   {idx + 1}
                 </span>
                 <span className="text-xs font-medium">{s.label}</span>
-                {isPast && <span className="ml-auto text-[10px] text-navy/40">✓</span>}
-              </div>
+                {isPast && !isPending && <span className="ml-auto text-[10px] text-navy/40">✓</span>}
+                {isPending && <span className="ml-auto text-[10px] text-gold font-semibold">selected →</span>}
+              </button>
             );
           })}
+
           {/* Special stages */}
           <div className="flex gap-1.5 pt-1.5 mt-1.5 border-t">
-            <div className={`flex-1 rounded-md px-3 py-2 text-xs font-medium ${stage === "Nurture" ? "bg-gold text-navy" : "bg-muted text-muted-foreground"}`}>
-              Nurture
-            </div>
-            <div className={`flex-1 rounded-md px-3 py-2 text-xs font-medium ${stage === "Dead / Lost" ? "bg-alert-red text-white" : "bg-muted text-muted-foreground"}`}>
-              Dead / Lost
-            </div>
+            {PROSPECT_SPECIAL_STAGES.map(s => {
+              const isActive = s.value === stage;
+              const isPending = pending === s.value;
+              const canClick = !!onStageChange && s.value !== stage;
+              return (
+                <button
+                  key={s.value}
+                  disabled={!canClick || changing}
+                  onClick={() => canClick && setPending(isPending ? null : s.value)}
+                  className={`flex-1 rounded-md px-3 py-2 text-xs font-medium transition-colors ${
+                    isPending ? "bg-gold/20 border border-gold/40 text-navy"
+                    : isActive && s.value === "Dead / Lost" ? "bg-alert-red text-white"
+                    : isActive ? "bg-gold text-navy"
+                    : canClick ? "bg-muted text-muted-foreground hover:bg-muted/80"
+                    : "bg-muted text-muted-foreground opacity-60 cursor-default"
+                  }`}
+                >
+                  {s.label}
+                </button>
+              );
+            })}
           </div>
+
+          {/* Pending confirmation */}
+          {pending && (
+            <div className="mt-2 rounded-lg border border-gold/30 bg-gold/5 p-3 space-y-2.5">
+              <p className="text-xs font-semibold text-navy">
+                Move to <span className="text-gold">{pending}</span>
+              </p>
+
+              {/* Next Action — hidden when moving to Funded (no follow-up needed) */}
+              {pending !== "Funded" && (
+                <>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                      Next Action
+                    </label>
+                    <input
+                      value={nextAction}
+                      onChange={e => setNextAction(e.target.value)}
+                      placeholder="What's the next step? (optional)"
+                      className="w-full border border-border rounded px-2 py-1.5 text-xs text-navy bg-white focus:outline-none focus:border-gold"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                      Next Action Date
+                    </label>
+                    <input
+                      type="date"
+                      value={nextActionDate}
+                      onChange={e => setNextActionDate(e.target.value)}
+                      className="w-full border border-border rounded px-2 py-1.5 text-xs text-navy bg-white focus:outline-none focus:border-gold"
+                    />
+                  </div>
+                </>
+              )}
+
+              {/* Reason — only for special stages */}
+              {pendingIsSpecial && (
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                    Reason
+                  </label>
+                  <input
+                    value={reason}
+                    onChange={e => setReason(e.target.value)}
+                    placeholder="Why this stage? (optional)"
+                    className="w-full border border-border rounded px-2 py-1.5 text-xs text-navy bg-white focus:outline-none focus:border-gold"
+                  />
+                </div>
+              )}
+
+              {changeErr && <p className="text-[10px] text-alert-red">{changeErr}</p>}
+
+              <div className="flex items-center gap-2 pt-0.5">
+                <button
+                  onClick={confirm}
+                  disabled={changing}
+                  className="rounded-full bg-gold px-4 py-1.5 text-xs font-semibold text-navy hover:bg-gold-hover disabled:opacity-50 transition-colors"
+                >
+                  {changing ? <Loader2 size={11} className="animate-spin inline" /> : "Confirm"}
+                </button>
+                <button
+                  onClick={resetForm}
+                  className="text-xs text-muted-foreground hover:text-navy transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -269,7 +640,12 @@ function ProspectStageBar({ stage }: { stage: string | null }) {
 
 // ─── 2. Identity Bar ──────────────────────────────────────────────────────────
 
-function ProspectIdentityBar({ prospect }: { prospect: ZohoProspectDetail }) {
+function ProspectIdentityBar({
+  prospect, onUpdate,
+}: {
+  prospect: ZohoProspectDetail;
+  onUpdate: (fields: Record<string, unknown>) => Promise<void>;
+}) {
   const today = new Date().toISOString().split("T")[0];
   const isOverdue = prospect.Next_Action_Date != null && prospect.Next_Action_Date < today;
   const isStale = (prospect.Days_Since_Last_Touch ?? 0) > 14;
@@ -277,7 +653,12 @@ function ProspectIdentityBar({ prospect }: { prospect: ZohoProspectDetail }) {
   return (
     <div>
       <div className="flex items-center gap-3 flex-wrap">
-        <h1 className="text-lg md:text-xl font-semibold text-navy">{prospect.Name}</h1>
+        <InlineTextField
+          value={prospect.Name}
+          label="name"
+          large
+          onSave={val => val ? onUpdate({ Name: val }) : Promise.reject(new Error("Name is required"))}
+        />
         {(isOverdue || isStale) && <span className="h-2.5 w-2.5 rounded-full bg-alert-red shrink-0" />}
         {prospect.Pipeline_Stage && (
           <Badge className="bg-gold/10 text-gold border-gold/20 text-[11px]">{prospect.Pipeline_Stage}</Badge>
@@ -289,23 +670,34 @@ function ProspectIdentityBar({ prospect }: { prospect: ZohoProspectDetail }) {
         )}
       </div>
 
-      {prospect.Company_Entity && (
-        <p className="mt-0.5 text-sm text-muted-foreground">{prospect.Company_Entity}</p>
-      )}
+      <div className="mt-0.5">
+        <InlineTextField
+          value={prospect.Company_Entity}
+          label="company / entity"
+          className="text-sm text-muted-foreground"
+          onSave={val => onUpdate({ Company_Entity: val })}
+        />
+      </div>
 
       <div className="mt-2 flex items-center gap-2 flex-wrap">
-        {prospect.Phone && (
-          <a href={`tel:${prospect.Phone}`}
-            className="inline-flex items-center gap-1.5 rounded-full bg-navy/8 px-3 py-1.5 text-xs font-medium text-navy hover:bg-gold/20 transition-colors">
-            <Phone size={12} />{prospect.Phone}
-          </a>
-        )}
-        {prospect.Email && (
-          <a href={`mailto:${prospect.Email}`}
-            className="inline-flex items-center gap-1.5 rounded-full bg-navy/8 px-3 py-1.5 text-xs font-medium text-navy hover:bg-gold/20 transition-colors">
-            <Mail size={12} />{prospect.Email}
-          </a>
-        )}
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-navy/8 px-3 py-1.5 text-xs font-medium text-navy">
+          <Phone size={12} />
+          <InlineTextField
+            value={prospect.Phone}
+            label="phone"
+            inputType="tel"
+            onSave={val => onUpdate({ Phone: val })}
+          />
+        </span>
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-navy/8 px-3 py-1.5 text-xs font-medium text-navy">
+          <Mail size={12} />
+          <InlineTextField
+            value={prospect.Email}
+            label="email"
+            inputType="email"
+            onSave={val => onUpdate({ Email: val })}
+          />
+        </span>
       </div>
     </div>
   );
@@ -313,21 +705,16 @@ function ProspectIdentityBar({ prospect }: { prospect: ZohoProspectDetail }) {
 
 // ─── 3. Next Action Bar ───────────────────────────────────────────────────────
 
-function ProspectNextActionBar({ prospect }: { prospect: ZohoProspectDetail }) {
+function ProspectNextActionBar({
+  prospect, onUpdate,
+}: {
+  prospect: ZohoProspectDetail;
+  onUpdate: (fields: Record<string, unknown>) => Promise<void>;
+}) {
   const today = new Date().toISOString().split("T")[0];
   const isOverdue = prospect.Next_Action_Date != null && prospect.Next_Action_Date < today;
   const isStale = (prospect.Days_Since_Last_Touch ?? 0) > 14;
   const isUrgent = isOverdue || isStale;
-  const hasAction = prospect.Next_Action || prospect.Next_Action_Date;
-
-  if (!hasAction) {
-    return (
-      <div className="rounded-lg border border-dashed border-gold/30 bg-gold/5 px-3 py-3">
-        <p className="text-[10px] font-medium uppercase tracking-wider text-gold">Next Action</p>
-        <p className="text-sm text-muted-foreground mt-1">No next action set.</p>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-0">
@@ -340,14 +727,23 @@ function ProspectNextActionBar({ prospect }: { prospect: ZohoProspectDetail }) {
         </div>
       )}
       <div className={`${isUrgent ? "rounded-b-lg border border-t-0 border-alert-red/15" : "rounded-lg border border-gold/15"} bg-gold/5 px-3 py-2`}>
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
+        <div className="flex items-start justify-between gap-2 flex-wrap">
+          <div className="min-w-0 flex-1">
             <p className="text-[10px] font-medium uppercase tracking-wider text-gold">Next Action</p>
-            <p className="text-sm font-semibold text-navy">{prospect.Next_Action ?? "—"}</p>
+            <InlineTextField
+              value={prospect.Next_Action}
+              label="next action detail"
+              className="text-sm font-semibold"
+              onSave={val => onUpdate({ Next_Action: val })}
+            />
           </div>
-          {!isUrgent && prospect.Next_Action_Date && (
-            <span className="text-xs font-medium text-navy shrink-0">{formatRelativeDate(prospect.Next_Action_Date)}</span>
-          )}
+          <div className="shrink-0">
+            <InlineDateField
+              value={prospect.Next_Action_Date}
+              label="action date"
+              onSave={val => onUpdate({ Next_Action_Date: val })}
+            />
+          </div>
         </div>
       </div>
     </div>
@@ -356,24 +752,56 @@ function ProspectNextActionBar({ prospect }: { prospect: ZohoProspectDetail }) {
 
 // ─── 4. Profile Card ──────────────────────────────────────────────────────────
 
-function ProspectProfileCard({ prospect }: { prospect: ZohoProspectDetail }) {
-  const financialFields = PROSPECT_PROFILE_FIELDS.filter((f) => f.section === "financials");
-  const detailFields = PROSPECT_PROFILE_FIELDS.filter((f) => f.section === "details");
+function ProspectProfileCard({
+  prospect, onUpdate,
+}: {
+  prospect: ZohoProspectDetail;
+  onUpdate: (fields: Record<string, unknown>) => Promise<void>;
+}) {
+  const financialFields = PROSPECT_PROFILE_FIELDS.filter(f => f.section === "financials");
+  const detailFields = PROSPECT_PROFILE_FIELDS.filter(f => f.section === "details");
   const currentStage = prospect.Pipeline_Stage;
+
+  const EDITABLE_FINANCIALS: Record<string, string> = {
+    Initial_Investment_Target: "target",
+    Growth_Target: "growth",
+    Committed_Amount: "committed",
+  };
 
   return (
     <div className="rounded-lg border bg-card">
-      <ProspectStageBar stage={currentStage} />
+      <ProspectStageBar
+        stage={currentStage}
+        onStageChange={async ({ newStage, nextAction, nextActionDate, reason }) => {
+          const fields: Record<string, unknown> = { Pipeline_Stage: newStage };
+          if (nextAction)     fields.Next_Action      = nextAction;
+          if (nextActionDate) fields.Next_Action_Date = nextActionDate;
+          if (reason)         fields.Lost_Dead_Reason = reason;
+          await onUpdate(fields);
+        }}
+      />
 
       <div className="px-4 pb-4 space-y-3">
         {/* Financials grid */}
         <div className="grid grid-cols-3 gap-4 pt-3 pb-2 border-t">
-          {financialFields.map((field) => {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const raw = (prospect as any)[field.api_name];
+          {financialFields.map(field => {
+            const raw = (prospect as Record<string, unknown>)[field.api_name];
+            const apiName = field.api_name;
+            if (EDITABLE_FINANCIALS[apiName]) {
+              return (
+                <div key={apiName}>
+                  <p className="text-[10px] text-muted-foreground tracking-wide mb-0.5">{field.label}</p>
+                  <InlineCurrencyField
+                    value={raw as number | null}
+                    label={EDITABLE_FINANCIALS[apiName]}
+                    onSave={val => onUpdate({ [apiName]: val })}
+                  />
+                </div>
+              );
+            }
             const formatted = formatFieldValue(raw, field.type);
             return (
-              <div key={field.api_name}>
+              <div key={apiName}>
                 <p className="text-[10px] text-muted-foreground tracking-wide mb-0.5">{field.label}</p>
                 {formatted
                   ? <p className="text-sm font-semibold text-navy tabular-nums">{formatted}</p>
@@ -384,10 +812,40 @@ function ProspectProfileCard({ prospect }: { prospect: ZohoProspectDetail }) {
         </div>
 
         {/* Detail rows */}
-        {detailFields.map((field) => {
+        {detailFields.map(field => {
           if (field.showForStages && currentStage && !field.showForStages.includes(currentStage)) return null;
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const raw = (prospect as any)[field.api_name];
+          const raw = (prospect as Record<string, unknown>)[field.api_name];
+
+          // Lead_Source: inline select
+          if (field.api_name === "Lead_Source") {
+            return (
+              <div key={field.api_name} className="flex items-center gap-2">
+                <span className="text-[10px] text-muted-foreground w-28 shrink-0 tracking-wide">{field.label}</span>
+                <InlineLeadSourceField
+                  value={raw as string | null}
+                  onSave={val => onUpdate({ Lead_Source: val })}
+                />
+              </div>
+            );
+          }
+
+          // Company entity: already editable in identity bar
+          if (field.api_name === "Company_Entity") return null;
+
+          // Lost/Dead reason: inline text
+          if (field.api_name === "Lost_Dead_Reason") {
+            return (
+              <div key={field.api_name} className="flex items-center gap-2">
+                <span className="text-[10px] text-muted-foreground w-28 shrink-0 tracking-wide">{field.label}</span>
+                <InlineTextField
+                  value={raw as string | null}
+                  label="reason"
+                  onSave={val => onUpdate({ Lost_Dead_Reason: val })}
+                />
+              </div>
+            );
+          }
+
           const formatted = formatFieldValue(raw, field.type);
           if (!formatted) return null;
           return (
@@ -402,118 +860,72 @@ function ProspectProfileCard({ prospect }: { prospect: ZohoProspectDetail }) {
   );
 }
 
-// ─── 5. Unified Activity Timeline ─────────────────────────────────────────────
+// ─── 5. Unified Activity Timeline (read-only) ─────────────────────────────────
 
 const FILTER_OPTIONS = [
-  { key: "all",          label: "All" },
-  { key: "call",         label: "Calls" },
-  { key: "email",        label: "Emails" },
-  { key: "meeting",      label: "Meetings" },
-  { key: "stage_change", label: "Stage Changes" },
-  { key: "update",       label: "Updates" },
-  { key: "automation",   label: "Automated" },
+  { key: "all", label: "All" }, { key: "call", label: "Calls" },
+  { key: "email", label: "Emails" }, { key: "meeting", label: "Meetings" },
+  { key: "stage_change", label: "Stage Changes" }, { key: "update", label: "Updates" },
+  { key: "automation", label: "Automated" },
 ];
 
-// Icon per kind — used inside colored dot
 const KIND_ICON: Record<ActivityKind, React.ReactNode> = {
-  call:         <Phone size={12} />,
-  email:        <Mail size={12} />,
-  meeting:      <CalendarDays size={12} />,
-  note:         <FileText size={12} />,
-  update:       <Pencil size={12} />,
-  stage_change: <ArrowRight size={12} />,
-  automation:   <Bot size={12} />,
+  call: <Phone size={12} />, email: <Mail size={12} />, meeting: <CalendarDays size={12} />,
+  note: <FileText size={12} />, update: <Pencil size={12} />, stage_change: <ArrowRight size={12} />,
+  automation: <Zap size={12} />,
 };
 
 function ActivityIcon({ kind }: { kind: ActivityKind }) {
   return (
-    <div
-      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-white ring-2 ring-background"
-      style={{ backgroundColor: KIND_COLOR[kind] }}
-    >
+    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-white ring-2 ring-background"
+      style={{ backgroundColor: KIND_COLOR[kind] }}>
       {KIND_ICON[kind]}
     </div>
   );
 }
 
-/** Format just the time portion (e.g. "6:00 AM") from an ISO timestamp. */
-function formatTimeOnly(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
-}
-
-/** Group activities into [{dateLabel, items}] newest-date-first. */
 function groupByDate(activities: UnifiedActivity[]): { dateLabel: string; items: UnifiedActivity[] }[] {
   const map = new Map<string, UnifiedActivity[]>();
   for (const a of activities) {
     const d = new Date(a.sortTime);
-    // Stable key: YYYY-MM-DD in local time
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     if (!map.has(key)) map.set(key, []);
     map.get(key)!.push(a);
   }
-
   const today = new Date();
   const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
   const yest = new Date(today); yest.setDate(yest.getDate() - 1);
   const yesterdayKey = `${yest.getFullYear()}-${String(yest.getMonth() + 1).padStart(2, "0")}-${String(yest.getDate()).padStart(2, "0")}`;
-
   return Array.from(map.entries())
-    .sort(([a], [b]) => b.localeCompare(a))          // newest date first
+    .sort(([a], [b]) => b.localeCompare(a))
     .map(([key, items]) => ({
-      dateLabel:
-        key === todayKey ? "Today"
-        : key === yesterdayKey ? "Yesterday"
-        : new Date(key + "T12:00:00").toLocaleDateString("en-US", {
-            weekday: "long", month: "long", day: "numeric", year: "numeric",
-          }),
+      dateLabel: key === todayKey ? "Today" : key === yesterdayKey ? "Yesterday"
+        : new Date(key + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" }),
       items,
     }));
 }
 
-// ── Entry row: icon + line (outside) + content card (inside) ─────────────────
-// The icon circle and vertical connector live in the left gutter.
-// Only the text/details content is inside the card.
-
-function EntryRow({
-  activity,
-  isLast,
-  children,
-}: {
-  activity: UnifiedActivity;
-  isLast: boolean;
-  children: React.ReactNode;
-}) {
+function EntryRow({ activity, isLast, children }: { activity: UnifiedActivity; isLast: boolean; children: React.ReactNode }) {
   const iconKind: ActivityKind =
     activity.timeline?.action === "added" ? "note"
     : activity.timeline?.action === "function_executed" ? "automation"
     : activity.kind;
-
   return (
     <div className="flex items-start gap-3">
-      {/* Left gutter: icon circle + vertical connector line */}
       <div className="flex flex-col items-center shrink-0" style={{ width: 28 }}>
         <ActivityIcon kind={iconKind} />
-        {/* Line segment to the next item — hidden on last */}
         {!isLast && <div className="w-px flex-1 bg-border mt-1 min-h-[12px]" />}
       </div>
-
-      {/* Content card — full width, no icon inside */}
-      <div className={`flex-1 min-w-0 ${!isLast ? "mb-3" : ""}`}>
-        {children}
-      </div>
+      <div className={`flex-1 min-w-0 ${!isLast ? "mb-3" : ""}`}>{children}</div>
     </div>
   );
 }
-
-// ── Content-only card bodies (no icon, no wrapper div with gap) ───────────────
 
 function CallCardContent({ activity }: { activity: UnifiedActivity }) {
   const c = activity.call!;
   const isInbound = c.Call_Type === "Inbound";
   const CallIcon = c.Call_Status === "Scheduled" ? PhoneCall : isInbound ? PhoneIncoming : PhoneOutgoing;
   const ts = c.Call_Start_Time ?? c.Created_Time;
-
   return (
     <div className="rounded-lg border bg-card px-3 py-2.5">
       <div className="flex items-center gap-2 flex-wrap">
@@ -523,9 +935,9 @@ function CallCardContent({ activity }: { activity: UnifiedActivity }) {
         </span>
         {ts && <span className="text-[11px] text-muted-foreground">{formatTimeOnly(ts)}</span>}
         {c.Call_Status && (
-          <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-            c.Call_Status === "Completed" ? "bg-healthy-green/10 text-healthy-green" : "bg-gold/15 text-gold"
-          }`}>{c.Call_Status}</span>
+          <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${c.Call_Status === "Completed" ? "bg-healthy-green/10 text-healthy-green" : "bg-gold/15 text-gold"}`}>
+            {c.Call_Status}
+          </span>
         )}
       </div>
       {c.Call_Agenda && <p className="mt-0.5 text-sm text-foreground/80">{c.Call_Agenda}</p>}
@@ -542,7 +954,6 @@ function CallCardContent({ activity }: { activity: UnifiedActivity }) {
 function EmailCardContent({ activity }: { activity: UnifiedActivity }) {
   const e = activity.email!;
   const ts = e.sent_time ?? e.date_time;
-
   return (
     <div className="rounded-lg border bg-card px-3 py-2.5">
       <div className="flex items-center gap-2 flex-wrap">
@@ -556,9 +967,7 @@ function EmailCardContent({ activity }: { activity: UnifiedActivity }) {
         </p>
       )}
       {e.to && e.to.length > 0 && (
-        <p className="text-[11px] text-muted-foreground">
-          To: {e.to.map((r) => r.user_name || r.email).join(", ")}
-        </p>
+        <p className="text-[11px] text-muted-foreground">To: {e.to.map(r => r.user_name || r.email).join(", ")}</p>
       )}
       {e.summary && <p className="mt-1 text-[11px] text-muted-foreground italic line-clamp-2">{e.summary}</p>}
     </div>
@@ -568,15 +977,12 @@ function EmailCardContent({ activity }: { activity: UnifiedActivity }) {
 function MeetingCardContent({ activity }: { activity: UnifiedActivity }) {
   const ev = activity.event!;
   const ts = ev.Start_DateTime;
-
   return (
     <div className="rounded-lg border bg-card px-3 py-2.5">
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-sm font-medium text-navy">{ev.Event_Title || "Meeting"}</span>
         {ts && <span className="text-[11px] text-muted-foreground">{formatTimeOnly(ts)}</span>}
-        {ev.End_DateTime && ts && (
-          <span className="text-[11px] text-muted-foreground">– {formatTimeOnly(ev.End_DateTime)}</span>
-        )}
+        {ev.End_DateTime && ts && <span className="text-[11px] text-muted-foreground">– {formatTimeOnly(ev.End_DateTime)}</span>}
       </div>
       {ev.Venue && <p className="mt-0.5 text-[11px] text-muted-foreground">📍 {ev.Venue}</p>}
       {ev.Description && <p className="mt-1 text-[11px] text-muted-foreground italic line-clamp-2">{ev.Description}</p>}
@@ -587,7 +993,6 @@ function MeetingCardContent({ activity }: { activity: UnifiedActivity }) {
 
 function NoteCardContent({ activity }: { activity: UnifiedActivity }) {
   const n = activity.note!;
-
   return (
     <div className="rounded-lg border bg-card px-3 py-2.5">
       <div className="flex items-center gap-2 flex-wrap">
@@ -595,11 +1000,11 @@ function NoteCardContent({ activity }: { activity: UnifiedActivity }) {
         <span className="text-[11px] text-muted-foreground">{formatTimeOnly(n.Created_Time)}</span>
       </div>
       {n.Note_Content && (
-        <p className="mt-0.5 text-sm text-foreground/80 leading-relaxed line-clamp-3">{n.Note_Content}</p>
+        <div className="mt-0.5 line-clamp-3 overflow-hidden">
+          <NoteContent html={n.Note_Content} />
+        </div>
       )}
-      {n.Created_By && (
-        <p className="mt-1.5 text-[11px] text-muted-foreground font-medium">{n.Created_By.name}</p>
-      )}
+      {n.Created_By && <p className="mt-1.5 text-[11px] text-muted-foreground font-medium">{n.Created_By.name}</p>}
     </div>
   );
 }
@@ -611,7 +1016,6 @@ function TimelineCardContent({ activity }: { activity: UnifiedActivity }) {
   const isFnExecuted = t.action === "function_executed";
   const sourceMeta = getSourceMeta(t.source);
   const automationLabel = getAutomationLabel(t.automation_details);
-
   const actionLabel =
     t.action === "added" ? "Record Created"
     : isFnExecuted ? "Function Executed"
@@ -619,7 +1023,7 @@ function TimelineCardContent({ activity }: { activity: UnifiedActivity }) {
     : t.action.charAt(0).toUpperCase() + t.action.slice(1);
 
   if (isStageChange && t.field_history) {
-    const stageField = t.field_history.find((f) => f.api_name === "Pipeline_Stage");
+    const stageField = t.field_history.find(f => f.api_name === "Pipeline_Stage");
     return (
       <div className="rounded-lg border bg-card px-3 py-2.5">
         <div className="flex items-center gap-2 flex-wrap">
@@ -662,14 +1066,9 @@ function TimelineCardContent({ activity }: { activity: UnifiedActivity }) {
           <Zap size={9} />{automationLabel}
         </div>
       )}
-      {isFnExecuted && t.record?.name && (
-        <p className="mt-0.5 text-[11px] text-muted-foreground">
-          <span className="font-medium text-navy/70">fn:</span> {t.record.name}
-        </p>
-      )}
       {t.field_history && t.field_history.length > 0 && (
         <div className="mt-2 flex flex-col gap-1.5 rounded-md bg-muted/40 px-2.5 py-2">
-          {t.field_history.map((fh) => (
+          {t.field_history.map(fh => (
             <div key={fh.id} className="flex items-start gap-2 text-xs">
               <span className="font-medium text-navy/70 shrink-0 min-w-[110px]">{fh.field_label}</span>
               <div className="flex items-center gap-1.5 flex-wrap">
@@ -689,87 +1088,152 @@ function TimelineCardContent({ activity }: { activity: UnifiedActivity }) {
   );
 }
 
-function ProspectActivityTimeline({ activities }: { activities: UnifiedActivity[] }) {
-  const [expanded, setExpanded] = useState(false);
-  const [filter, setFilter] = useState("all");
+/**
+ * Self-fetching Activity Timeline.
+ * Data is loaded only when the section is first expanded — never on initial page load.
+ */
+function ProspectActivityTimeline({ prospectId }: { prospectId: string }) {
+  const [expanded,  setExpanded]  = useState(false);
+  const [fetched,   setFetched]   = useState(false);
+  const [fetching,  setFetching]  = useState(false);
+  const [fetchErr,  setFetchErr]  = useState<string | null>(null);
+  const [activities, setActivities] = useState<UnifiedActivity[]>([]);
+  const [filter,    setFilter]    = useState("all");
+
+  const loadData = useCallback(async () => {
+    if (fetched || fetching) return;
+    setFetching(true); setFetchErr(null);
+    try {
+      const [tlRes, emRes, caRes, evRes] = await Promise.all([
+        fetch(`/api/prospects/${prospectId}/timeline`, { credentials: "same-origin" }),
+        fetch(`/api/prospects/${prospectId}/emails`,   { credentials: "same-origin" }),
+        fetch(`/api/prospects/${prospectId}/calls`,    { credentials: "same-origin" }),
+        fetch(`/api/prospects/${prospectId}/events`,   { credentials: "same-origin" }),
+      ]);
+
+      // 401 → attempt token refresh once, then retry
+      if (tlRes.status === 401) {
+        const ok = (await fetch("/api/auth/zoho/refresh", { method: "POST", credentials: "same-origin" })).ok;
+        if (!ok) { setFetchErr("Session expired. Please refresh the page."); return; }
+        setFetched(false); setFetching(false);
+        await loadData();
+        return;
+      }
+
+      const safe = async <T,>(res: Response): Promise<T[]> =>
+        res.ok ? ((await res.json()) as { data: T[] }).data ?? [] : [];
+
+      const [tl, em, ca, ev] = await Promise.all([
+        safe<ZohoTimelineEvent>(tlRes),
+        safe<ZohoEmail>(emRes),
+        safe<ZohoCall>(caRes),
+        safe<ZohoEvent>(evRes),
+      ]);
+
+      setActivities(buildUnifiedTimeline(tl, em, ca, ev));
+      setFetched(true);
+    } catch (e) {
+      setFetchErr(e instanceof Error ? e.message : "Failed to load timeline.");
+    } finally {
+      setFetching(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prospectId, fetched, fetching]);
+
+  const toggle = () => {
+    const next = !expanded;
+    setExpanded(next);
+    if (next && !fetched && !fetching) void loadData();
+  };
 
   const counts = FILTER_OPTIONS.reduce<Record<string, number>>((acc, opt) => {
-    acc[opt.key] = opt.key === "all" ? activities.length : activities.filter((a) => a.kind === opt.key).length;
+    acc[opt.key] = opt.key === "all" ? activities.length : activities.filter(a => a.kind === opt.key).length;
     return acc;
   }, {});
-
-  const filtered = filter === "all" ? activities : activities.filter((a) => a.kind === filter);
+  const filtered = filter === "all" ? activities : activities.filter(a => a.kind === filter);
   const groups = groupByDate(filtered);
 
   return (
     <div>
-      {/* Collapsible header — same pattern as Stage History */}
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-2 w-full text-left group"
-      >
+      <button onClick={toggle} className="flex items-center gap-2 w-full text-left group">
         {expanded ? <ChevronDown size={14} className="text-muted-foreground shrink-0" /> : <ChevronRight size={14} className="text-muted-foreground shrink-0" />}
         <CalendarDays size={14} className="text-navy shrink-0" />
         <h3 className="text-sm font-semibold text-navy">Activity Timeline</h3>
-        <span className="ml-auto text-[10px] text-muted-foreground">{activities.length} activit{activities.length !== 1 ? "ies" : "y"}</span>
+        {fetched && (
+          <span className="ml-auto text-[10px] text-muted-foreground">
+            {activities.length} activit{activities.length !== 1 ? "ies" : "y"}
+          </span>
+        )}
       </button>
 
       {expanded && (
         <div className="mt-3 pl-5">
-          {/* Filter pills — always show all */}
-          <div className="mb-4 flex flex-wrap gap-1.5">
-            {FILTER_OPTIONS.map((opt) => (
-              <button
-                key={opt.key}
-                onClick={() => setFilter(opt.key)}
-                className={`rounded-full px-3 py-1 text-[10px] font-medium transition-colors ${
-                  filter === opt.key ? "bg-navy text-white" : "bg-muted text-muted-foreground hover:bg-muted/80"
-                }`}
-              >
-                {opt.label}
-                {opt.key !== "all" && (
-                  <span className={`ml-1 ${counts[opt.key] > 0 ? "opacity-60" : "opacity-30"}`}>{counts[opt.key]}</span>
-                )}
-              </button>
-            ))}
-          </div>
-
-          {filtered.length === 0 ? (
-            <p className="py-6 text-center text-sm text-muted-foreground italic">No activity logged yet.</p>
-          ) : (
-            <div className="space-y-6">
-              {groups.map((group) => (
-                <div key={group.dateLabel}>
-                  {/* Date section header */}
-                  <div className="flex items-center gap-3 mb-3 pl-[40px]">
-                    <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
-                      {group.dateLabel}
-                    </span>
-                    <div className="flex-1 h-px bg-border" />
-                    <span className="text-[11px] text-muted-foreground/50 shrink-0">{group.items.length}</span>
-                  </div>
-
-                  {/* Icon + line + card rows */}
-                  <div>
-                    {group.items.map((activity, idx) => {
-                      const isLast = idx === group.items.length - 1;
-                      const card =
-                        activity.kind === "call"    ? <CallCardContent    activity={activity} /> :
-                        activity.kind === "email"   ? <EmailCardContent   activity={activity} /> :
-                        activity.kind === "meeting" ? <MeetingCardContent activity={activity} /> :
-                        activity.kind === "note"    ? <NoteCardContent    activity={activity} /> :
-                                                      <TimelineCardContent activity={activity} />;
-
-                      return (
-                        <EntryRow key={activity.id} activity={activity} isLast={isLast}>
-                          {card}
-                        </EntryRow>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
+          {/* Loading */}
+          {fetching && (
+            <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
+              <Loader2 size={14} className="animate-spin text-gold" />
+              Loading timeline…
             </div>
+          )}
+
+          {/* Error */}
+          {fetchErr && (
+            <div className="flex items-center gap-2 py-4 text-sm text-alert-red">
+              <AlertCircle size={14} className="shrink-0" />
+              {fetchErr}
+              <button
+                onClick={() => { setFetched(false); void loadData(); }}
+                className="ml-2 underline text-xs"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
+          {/* Data */}
+          {fetched && !fetching && (
+            <>
+              <div className="mb-4 flex flex-wrap gap-1.5">
+                {FILTER_OPTIONS.map(opt => (
+                  <button key={opt.key} onClick={() => setFilter(opt.key)}
+                    className={`rounded-full px-3 py-1 text-[10px] font-medium transition-colors ${filter === opt.key ? "bg-navy text-white" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}>
+                    {opt.label}
+                    {opt.key !== "all" && (
+                      <span className={`ml-1 ${counts[opt.key] > 0 ? "opacity-60" : "opacity-30"}`}>{counts[opt.key]}</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+
+              {filtered.length === 0
+                ? <p className="py-6 text-center text-sm text-muted-foreground italic">No activity logged yet.</p>
+                : <div className="space-y-6">
+                    {groups.map(group => (
+                      <div key={group.dateLabel}>
+                        <div className="flex items-center gap-3 mb-3 pl-[40px]">
+                          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{group.dateLabel}</span>
+                          <div className="flex-1 h-px bg-border" />
+                          <span className="text-[11px] text-muted-foreground/50 shrink-0">{group.items.length}</span>
+                        </div>
+                        <div>
+                          {group.items.map((activity, idx) => {
+                            const isLast = idx === group.items.length - 1;
+                            const card =
+                              activity.kind === "call"    ? <CallCardContent    activity={activity} /> :
+                              activity.kind === "email"   ? <EmailCardContent   activity={activity} /> :
+                              activity.kind === "meeting" ? <MeetingCardContent activity={activity} /> :
+                              activity.kind === "note"    ? <NoteCardContent    activity={activity} /> :
+                                                            <TimelineCardContent activity={activity} />;
+                            return (
+                              <EntryRow key={activity.id} activity={activity} isLast={isLast}>{card}</EntryRow>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+              }
+            </>
           )}
         </div>
       )}
@@ -777,29 +1241,194 @@ function ProspectActivityTimeline({ activities }: { activities: UnifiedActivity[
   );
 }
 
-// ─── 6. Notes Section (right column) ─────────────────────────────────────────
+// ─── 6. Notes Section with full CRUD ─────────────────────────────────────────
 
-function ProspectNotesSection({ notes }: { notes: ZohoNote[] }) {
+function ProspectNotesSection({
+  notes, onAdd, onEdit, onDelete,
+}: {
+  notes: ZohoNote[];
+  onAdd: (title: string, content: string) => Promise<void>;
+  onEdit: (noteId: string, title: string, content: string) => Promise<void>;
+  onDelete: (noteId: string) => Promise<void>;
+}) {
   const [expanded, setExpanded] = useState(true);
+  const [addingNote, setAddingNote] = useState(false);
+  const [addTitle, setAddTitle] = useState("");
+  const [addContent, setAddContent] = useState("");
+  const [addSubmitting, setAddSubmitting] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editContent, setEditContent] = useState("");
+  const [editSubmitting, setEditSubmitting] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
+  const handleAdd = async () => {
+    if (!addContent.trim() || addSubmitting) return;
+    setAddSubmitting(true); setAddError(null);
+    try {
+      await onAdd(addTitle, addContent);
+      setAddTitle(""); setAddContent(""); setAddingNote(false);
+    } catch (e) {
+      setAddError(e instanceof Error ? e.message : "Failed to add note");
+    } finally {
+      setAddSubmitting(false);
+    }
+  };
+
+  const startEdit = (note: ZohoNote) => {
+    setEditingId(note.id);
+    setEditTitle(note.Note_Title ?? "");
+    setEditContent(note.Note_Content ?? "");
+    setEditError(null);
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditTitle("");
+    setEditContent("");
+    setEditError(null);
+  };
+
+  const handleEdit = async () => {
+    if (!editingId || !editContent.trim() || editSubmitting) return;
+    setEditSubmitting(true); setEditError(null);
+    try {
+      await onEdit(editingId, editTitle, editContent);
+      setEditingId(null);
+    } catch (e) {
+      setEditError(e instanceof Error ? e.message : "Failed to update note");
+    } finally {
+      setEditSubmitting(false);
+    }
+  };
+
+  const handleDelete = async (noteId: string) => {
+    if (!window.confirm("Delete this note? This cannot be undone.")) return;
+    try { await onDelete(noteId); }
+    catch (e) { alert(e instanceof Error ? e.message : "Failed to delete note"); }
+  };
+
   return (
     <div>
-      <button onClick={() => setExpanded(!expanded)} className="flex items-center gap-2 w-full text-left group">
-        {expanded ? <ChevronDown size={14} className="text-muted-foreground shrink-0" /> : <ChevronRight size={14} className="text-muted-foreground shrink-0" />}
-        <h3 className="text-sm font-semibold text-navy">Notes</h3>
-        <span className="ml-auto text-[10px] text-muted-foreground">{notes.length}</span>
-      </button>
+      <div className="flex items-center gap-2">
+        <button onClick={() => setExpanded(!expanded)} className="flex items-center gap-2 flex-1 text-left group">
+          {expanded ? <ChevronDown size={14} className="text-muted-foreground shrink-0" /> : <ChevronRight size={14} className="text-muted-foreground shrink-0" />}
+          <h3 className="text-sm font-semibold text-navy">Notes</h3>
+          <span className="ml-1 text-[10px] text-muted-foreground">{notes.length}</span>
+        </button>
+        <button
+          onClick={() => { setAddingNote(!addingNote); setExpanded(true); }}
+          className="inline-flex items-center gap-1 text-[10px] font-medium text-gold hover:text-gold/80 transition-colors"
+        >
+          <Plus size={11} />
+          Add note
+        </button>
+      </div>
+
       {expanded && (
         <div className="mt-3 space-y-3 pl-5">
-          {notes.length === 0 ? (
-            <p className="text-sm text-muted-foreground italic">No notes yet.</p>
-          ) : notes.map((note) => (
-            <div key={note.id} className="rounded-md border bg-card px-3 py-2.5">
-              {note.Note_Title && <p className="text-xs font-semibold text-navy mb-1">{note.Note_Title}</p>}
-              {note.Note_Content && <p className="text-xs text-foreground/80 whitespace-pre-wrap leading-relaxed">{note.Note_Content}</p>}
-              <div className="flex items-center justify-between mt-2 pt-1.5 border-t">
-                <span className="text-[10px] text-muted-foreground">{note.Created_By?.name ?? "—"}</span>
-                <span className="text-[10px] text-muted-foreground">{formatDate(note.Created_Time)}</span>
+          {/* Add note form */}
+          {addingNote && (
+            <div className="rounded-md border border-gold/30 bg-gold/5 p-3 space-y-2">
+              <input
+                value={addTitle}
+                onChange={e => setAddTitle(e.target.value)}
+                placeholder="Title (optional)"
+                className="w-full border border-border rounded px-2 py-1.5 text-xs font-medium text-navy bg-white focus:outline-none focus:border-gold"
+              />
+              <NoteEditor
+                value={addContent}
+                onChange={setAddContent}
+                placeholder="Write a note…"
+                minHeight={100}
+              />
+              {addError && <p className="text-[10px] text-alert-red">{addError}</p>}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleAdd}
+                  disabled={!addContent.trim() || addSubmitting}
+                  className="rounded-full bg-gold px-4 py-1.5 text-xs font-semibold text-navy hover:bg-gold-hover disabled:opacity-50 transition-colors"
+                >
+                  {addSubmitting ? <Loader2 size={11} className="animate-spin inline" /> : "Save Note"}
+                </button>
+                <button
+                  onClick={() => { setAddingNote(false); setAddTitle(""); setAddContent(""); setAddError(null); }}
+                  className="text-xs text-muted-foreground hover:text-navy transition-colors"
+                >
+                  Cancel
+                </button>
               </div>
+            </div>
+          )}
+
+          {notes.length === 0 && !addingNote && (
+            <p className="text-sm text-muted-foreground italic">No notes yet.</p>
+          )}
+
+          {notes.map(note => (
+            <div key={note.id}>
+              {editingId === note.id ? (
+                <div className="rounded-md border border-gold/30 bg-gold/5 p-3 space-y-2">
+                  <input
+                    value={editTitle}
+                    onChange={e => setEditTitle(e.target.value)}
+                    placeholder="Title (optional)"
+                    className="w-full border border-border rounded px-2 py-1.5 text-xs font-medium text-navy bg-white focus:outline-none focus:border-gold"
+                  />
+                  <NoteEditor
+                    value={editContent}
+                    onChange={setEditContent}
+                    placeholder="Note content…"
+                    minHeight={100}
+                  />
+                  {editError && <p className="text-[10px] text-alert-red">{editError}</p>}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleEdit}
+                      disabled={!editContent.trim() || editSubmitting}
+                      className="rounded-full bg-gold px-4 py-1.5 text-xs font-semibold text-navy hover:bg-gold-hover disabled:opacity-50 transition-colors"
+                    >
+                      {editSubmitting ? <Loader2 size={11} className="animate-spin inline" /> : "Save Changes"}
+                    </button>
+                    <button
+                      onClick={cancelEdit}
+                      className="text-xs text-muted-foreground hover:text-navy transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-md border bg-card px-3 py-2.5 group/note relative">
+                  {note.Note_Title && <p className="text-xs font-semibold text-navy mb-1.5">{note.Note_Title}</p>}
+                  {note.Note_Content && (
+                    <NoteContent html={note.Note_Content} />
+                  )}
+                  <div className="flex items-center justify-between mt-2 pt-1.5 border-t">
+                    <span className="text-[10px] text-muted-foreground">{note.Created_By?.name ?? "—"}</span>
+                    <span className="text-[10px] text-muted-foreground">{formatDate(note.Created_Time)}</span>
+                  </div>
+                  {/* Edit / Delete icons */}
+                  <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover/note:opacity-100 transition-opacity">
+                    <button
+                      onClick={() => startEdit(note)}
+                      className="p-1 rounded text-muted-foreground hover:text-navy hover:bg-muted/60 transition-colors"
+                      title="Edit note"
+                    >
+                      <Pencil size={11} />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(note.id)}
+                      className="p-1 rounded text-muted-foreground hover:text-alert-red hover:bg-alert-red/10 transition-colors"
+                      title="Delete note"
+                    >
+                      <Trash2 size={11} />
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -808,7 +1437,7 @@ function ProspectNotesSection({ notes }: { notes: ZohoNote[] }) {
   );
 }
 
-// ─── 7. Record Info (right column) ───────────────────────────────────────────
+// ─── 7. Record Info ───────────────────────────────────────────────────────────
 
 function ProspectRecordInfo({ prospect }: { prospect: ZohoProspectDetail }) {
   const [expanded, setExpanded] = useState(false);
@@ -839,10 +1468,7 @@ function ProspectStageHistorySection({ history }: { history: ZohoStageHistory[] 
   const [expanded, setExpanded] = useState(false);
   return (
     <div>
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-2 w-full text-left group"
-      >
+      <button onClick={() => setExpanded(!expanded)} className="flex items-center gap-2 w-full text-left group">
         {expanded ? <ChevronDown size={14} className="text-muted-foreground shrink-0" /> : <ChevronRight size={14} className="text-muted-foreground shrink-0" />}
         <TrendingUp size={14} className="text-gold shrink-0" />
         <h3 className="text-sm font-semibold text-navy">Pipeline Stage History</h3>
@@ -850,55 +1476,46 @@ function ProspectStageHistorySection({ history }: { history: ZohoStageHistory[] 
       </button>
       {expanded && (
         <div className="mt-3 pl-5">
-          {history.length === 0 ? (
-            <p className="text-sm text-muted-foreground italic">No stage history.</p>
-          ) : (
-            <div className="rounded-md border overflow-hidden">
-              <table className="w-full text-xs">
-                <thead className="bg-muted/50">
-                  <tr>
-                    <th className="text-left px-3 py-2 font-semibold text-navy/70">Stage</th>
-                    <th className="text-left px-3 py-2 font-semibold text-navy/70">Duration</th>
-                    <th className="text-left px-3 py-2 font-semibold text-navy/70">Changed</th>
-                    <th className="text-left px-3 py-2 font-semibold text-navy/70">By</th>
-                    <th className="text-left px-3 py-2 font-semibold text-navy/70">Next Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {history.map((row) => (
-                    <tr key={row.id} className="hover:bg-muted/30 transition-colors">
-                      <td className="px-3 py-2">
-                        <span className="font-medium text-navy">{row.Pipeline_Stage ?? "—"}</span>
-                      </td>
-                      <td className="px-3 py-2 text-muted-foreground">
-                        {row.Duration_Days !== null && row.Duration_Days !== undefined
-                          ? `${row.Duration_Days}d`
-                          : "—"}
-                      </td>
-                      <td className="px-3 py-2 text-muted-foreground">
-                        {row.Modified_Time ? formatDate(row.Modified_Time) : "—"}
-                      </td>
-                      <td className="px-3 py-2 text-muted-foreground">
-                        {row.Modified_By?.name ?? "—"}
-                      </td>
-                      <td className="px-3 py-2 text-muted-foreground">
-                        {row.Next_Action
-                          ? <span>{row.Next_Action}{row.Next_Action_Date ? <span className="ml-1 text-[10px] text-gold">({formatDate(row.Next_Action_Date)})</span> : null}</span>
-                          : "—"}
-                      </td>
+          {history.length === 0
+            ? <p className="text-sm text-muted-foreground italic">No stage history.</p>
+            : (
+              <div className="rounded-md border overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead className="bg-muted/50">
+                    <tr>
+                      <th className="text-left px-3 py-2 font-semibold text-navy/70">Stage</th>
+                      <th className="text-left px-3 py-2 font-semibold text-navy/70">Duration</th>
+                      <th className="text-left px-3 py-2 font-semibold text-navy/70">Changed</th>
+                      <th className="text-left px-3 py-2 font-semibold text-navy/70">By</th>
+                      <th className="text-left px-3 py-2 font-semibold text-navy/70">Next Action</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                  </thead>
+                  <tbody className="divide-y">
+                    {history.map(row => (
+                      <tr key={row.id} className="hover:bg-muted/30 transition-colors">
+                        <td className="px-3 py-2"><span className="font-medium text-navy">{row.Pipeline_Stage ?? "—"}</span></td>
+                        <td className="px-3 py-2 text-muted-foreground">{row.Duration_Days != null ? `${row.Duration_Days}d` : "—"}</td>
+                        <td className="px-3 py-2 text-muted-foreground">{row.Modified_Time ? formatDate(row.Modified_Time) : "—"}</td>
+                        <td className="px-3 py-2 text-muted-foreground">{row.Modified_By?.name ?? "—"}</td>
+                        <td className="px-3 py-2 text-muted-foreground">
+                          {row.Next_Action
+                            ? <span>{row.Next_Action}{row.Next_Action_Date ? <span className="ml-1 text-[10px] text-gold">({formatDate(row.Next_Action_Date)})</span> : null}</span>
+                            : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          }
         </div>
       )}
     </div>
   );
 }
 
-// ─── 9. Tasks (Open + Closed) ─────────────────────────────────────────────────
+// ─── 9. Tasks ─────────────────────────────────────────────────────────────────
 
 const TASK_STATUS_OPEN = new Set(["Not Started", "In Progress", "Waiting on input", "Deferred"]);
 
@@ -911,19 +1528,13 @@ function taskPriorityColor(priority: string | null) {
 function ProspectTasksSection({ tasks }: { tasks: ZohoTask[] }) {
   const [expanded, setExpanded] = useState(true);
   const [showClosed, setShowClosed] = useState(false);
-
-  const openTasks = tasks.filter((t) => TASK_STATUS_OPEN.has(t.Status ?? ""));
-  const closedTasks = tasks.filter((t) => !TASK_STATUS_OPEN.has(t.Status ?? ""));
-
+  const openTasks = tasks.filter(t => TASK_STATUS_OPEN.has(t.Status ?? ""));
+  const closedTasks = tasks.filter(t => !TASK_STATUS_OPEN.has(t.Status ?? ""));
   const visibleTasks = showClosed ? closedTasks : openTasks;
-  const label = showClosed ? "Closed Activities" : "Open Activities";
 
   return (
     <div>
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-2 w-full text-left group"
-      >
+      <button onClick={() => setExpanded(!expanded)} className="flex items-center gap-2 w-full text-left group">
         {expanded ? <ChevronDown size={14} className="text-muted-foreground shrink-0" /> : <ChevronRight size={14} className="text-muted-foreground shrink-0" />}
         <CheckSquare size={14} className="text-navy shrink-0" />
         <h3 className="text-sm font-semibold text-navy">Activities</h3>
@@ -931,71 +1542,39 @@ function ProspectTasksSection({ tasks }: { tasks: ZohoTask[] }) {
       </button>
       {expanded && (
         <div className="mt-3 pl-5 space-y-3">
-          {/* Toggle open / closed */}
           <div className="flex gap-2">
-            <button
-              onClick={() => setShowClosed(false)}
-              className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors ${!showClosed ? "bg-navy text-white border-navy" : "border-border text-muted-foreground hover:border-navy/40"}`}
-            >
-              Open ({openTasks.length})
-            </button>
-            <button
-              onClick={() => setShowClosed(true)}
-              className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors ${showClosed ? "bg-navy text-white border-navy" : "border-border text-muted-foreground hover:border-navy/40"}`}
-            >
-              Closed ({closedTasks.length})
-            </button>
+            <button onClick={() => setShowClosed(false)} className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors ${!showClosed ? "bg-navy text-white border-navy" : "border-border text-muted-foreground hover:border-navy/40"}`}>Open ({openTasks.length})</button>
+            <button onClick={() => setShowClosed(true)} className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors ${showClosed ? "bg-navy text-white border-navy" : "border-border text-muted-foreground hover:border-navy/40"}`}>Closed ({closedTasks.length})</button>
           </div>
-
-          {visibleTasks.length === 0 ? (
-            <p className="text-sm text-muted-foreground italic">No {label.toLowerCase()}.</p>
-          ) : (
-            <div className="space-y-2">
-              {visibleTasks.map((task) => (
-                <div key={task.id} className="rounded-md border bg-card px-3 py-2.5 space-y-1">
-                  <div className="flex items-start gap-2">
-                    {showClosed
-                      ? <CheckCircle2 size={13} className="text-emerald-500 mt-0.5 shrink-0" />
-                      : <CircleDot size={13} className={`mt-0.5 shrink-0 ${taskPriorityColor(task.Priority)}`} />
-                    }
-                    <span className="text-xs font-medium text-navy leading-tight">{task.Subject ?? "Untitled Task"}</span>
-                    {task.Priority && (
-                      <span className={`ml-auto text-[10px] font-semibold shrink-0 ${taskPriorityColor(task.Priority)}`}>
-                        {task.Priority}
-                      </span>
-                    )}
+          {visibleTasks.length === 0
+            ? <p className="text-sm text-muted-foreground italic">No {showClosed ? "closed" : "open"} activities.</p>
+            : <div className="space-y-2">
+                {visibleTasks.map(task => (
+                  <div key={task.id} className="rounded-md border bg-card px-3 py-2.5 space-y-1">
+                    <div className="flex items-start gap-2">
+                      {showClosed
+                        ? <CheckCircle2 size={13} className="text-emerald-500 mt-0.5 shrink-0" />
+                        : <CircleDot size={13} className={`mt-0.5 shrink-0 ${taskPriorityColor(task.Priority)}`} />}
+                      <span className="text-xs font-medium text-navy leading-tight">{task.Subject ?? "Untitled Task"}</span>
+                      {task.Priority && <span className={`ml-auto text-[10px] font-semibold shrink-0 ${taskPriorityColor(task.Priority)}`}>{task.Priority}</span>}
+                    </div>
+                    {task.Description && <p className="text-[11px] text-muted-foreground pl-5 leading-relaxed line-clamp-2">{task.Description}</p>}
+                    <div className="flex items-center gap-3 pt-1 border-t mt-1.5 pl-5">
+                      {task.Due_Date && <span className="flex items-center gap-1 text-[10px] text-muted-foreground"><Clock size={10} />{formatDate(task.Due_Date)}</span>}
+                      {task.Closed_Time && <span className="flex items-center gap-1 text-[10px] text-emerald-600"><CheckCircle2 size={10} />Closed {formatDate(task.Closed_Time)}</span>}
+                      {task.Owner && <span className="flex items-center gap-1 text-[10px] text-muted-foreground ml-auto"><User size={10} />{task.Owner.name}</span>}
+                    </div>
                   </div>
-                  {task.Description && (
-                    <p className="text-[11px] text-muted-foreground pl-5 leading-relaxed line-clamp-2">{task.Description}</p>
-                  )}
-                  <div className="flex items-center gap-3 pt-1 border-t mt-1.5 pl-5">
-                    {task.Due_Date && (
-                      <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                        <Clock size={10} />{formatDate(task.Due_Date)}
-                      </span>
-                    )}
-                    {task.Closed_Time && (
-                      <span className="flex items-center gap-1 text-[10px] text-emerald-600">
-                        <CheckCircle2 size={10} />Closed {formatDate(task.Closed_Time)}
-                      </span>
-                    )}
-                    {task.Owner && (
-                      <span className="flex items-center gap-1 text-[10px] text-muted-foreground ml-auto">
-                        <User size={10} />{task.Owner.name}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+                ))}
+              </div>
+          }
         </div>
       )}
     </div>
   );
 }
 
-// ─── 10. Attachments ─────────────────────────────────────────────────────────
+// ─── 10. Attachments with upload + delete ────────────────────────────────────
 
 function formatFileSize(sizeStr: string | null): string {
   if (!sizeStr) return "—";
@@ -1013,77 +1592,98 @@ function fileExtension(name: string | null): string {
 }
 
 function ProspectAttachmentsSection({
-  attachments,
-  prospectId,
+  attachments, prospectId, onUpload, onDelete,
 }: {
   attachments: ZohoAttachment[];
   prospectId: string;
+  onUpload: (file: File) => Promise<void>;
+  onDelete: (attachmentId: string) => Promise<void>;
 }) {
   const [expanded, setExpanded] = useState(true);
   const [downloading, setDownloading] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const handleDownload = async (att: ZohoAttachment) => {
-    let token = getToken();
-    if (!token) return;
     setDownloading(att.id);
-
-    const doFetch = async (t: string) =>
-      fetch(`/api/prospects/${prospectId}/attachments/${att.id}`, {
-        headers: { Authorization: `Bearer ${t}` },
-        credentials: "same-origin",
-      });
-
+    const doFetch = () =>
+      fetch(`/api/prospects/${prospectId}/attachments/${att.id}`, { credentials: "same-origin" });
     try {
-      let res = await doFetch(token);
-
-      // On 401 try refreshing the Zoho token once
+      let res = await doFetch();
       if (res.status === 401) {
-        const refreshed = await refreshZohoAccessToken();
-        if (!refreshed) { alert("Session expired. Please log in again."); return; }
-        token = getToken() ?? token;
-        res = await doFetch(token);
+        const ok = (await fetch("/api/auth/zoho/refresh", { method: "POST", credentials: "same-origin" })).ok;
+        if (!ok) { alert("Session expired. Please log in again."); return; }
+        res = await doFetch();
       }
-
       if (!res.ok) {
         const body = await res.json().catch(() => ({})) as { error?: string; detail?: string };
         alert(`Download failed: ${body.error ?? res.statusText}${body.detail ? `\n${body.detail}` : ""}`);
         return;
       }
-
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = url;
-      a.download = att.File_Name ?? att.id;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      a.href = url; a.download = att.File_Name ?? att.id;
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a); URL.revokeObjectURL(url);
     } catch (err) {
-      console.error("[download]", err);
-      alert("Network error while downloading.");
+      console.error("[download]", err); alert("Network error while downloading.");
     } finally {
       setDownloading(null);
     }
   };
 
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 20 * 1024 * 1024) { setUploadError("File must be under 20 MB"); return; }
+    setUploading(true); setUploadError(null);
+    try {
+      await onUpload(file);
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
+  const handleDelete = async (att: ZohoAttachment) => {
+    if (!window.confirm(`Delete "${att.File_Name ?? "this file"}"? This cannot be undone.`)) return;
+    try { await onDelete(att.id); }
+    catch (e) { alert(e instanceof Error ? e.message : "Failed to delete attachment"); }
+  };
+
   return (
     <div>
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-2 w-full text-left group"
-      >
-        {expanded ? <ChevronDown size={14} className="text-muted-foreground shrink-0" /> : <ChevronRight size={14} className="text-muted-foreground shrink-0" />}
-        <Paperclip size={14} className="text-muted-foreground shrink-0" />
-        <h3 className="text-sm font-semibold text-navy">Attachments</h3>
-        <span className="ml-auto text-[10px] text-muted-foreground">{attachments.length}</span>
-      </button>
+      <div className="flex items-center gap-2">
+        <button onClick={() => setExpanded(!expanded)} className="flex items-center gap-2 flex-1 text-left group">
+          {expanded ? <ChevronDown size={14} className="text-muted-foreground shrink-0" /> : <ChevronRight size={14} className="text-muted-foreground shrink-0" />}
+          <Paperclip size={14} className="text-muted-foreground shrink-0" />
+          <h3 className="text-sm font-semibold text-navy">Attachments</h3>
+          <span className="ml-1 text-[10px] text-muted-foreground">{attachments.length}</span>
+        </button>
+        <button
+          onClick={() => fileRef.current?.click()}
+          disabled={uploading}
+          className="inline-flex items-center gap-1 text-[10px] font-medium text-gold hover:text-gold/80 disabled:opacity-50 transition-colors"
+        >
+          {uploading ? <Loader2 size={11} className="animate-spin" /> : <Upload size={11} />}
+          {uploading ? "Uploading…" : "Upload"}
+        </button>
+        <input ref={fileRef} type="file" className="hidden" onChange={handleFileChange} />
+      </div>
+
+      {uploadError && <p className="mt-1 pl-5 text-[10px] text-alert-red">{uploadError}</p>}
+
       {expanded && (
         <div className="mt-3 pl-5 space-y-2">
-          {attachments.length === 0 ? (
+          {attachments.length === 0 && !uploading && (
             <p className="text-sm text-muted-foreground italic">No attachments.</p>
-          ) : attachments.map((att) => (
-            <div key={att.id} className="flex items-center gap-3 rounded-md border bg-card px-3 py-2.5">
+          )}
+          {attachments.map(att => (
+            <div key={att.id} className="flex items-center gap-3 rounded-md border bg-card px-3 py-2.5 group/att">
               <div className="shrink-0 w-8 h-8 rounded bg-muted flex items-center justify-center">
                 <span className="text-[8px] font-bold text-muted-foreground">{fileExtension(att.File_Name)}</span>
               </div>
@@ -1093,18 +1693,24 @@ function ProspectAttachmentsSection({
                   {formatFileSize(att.Size)} · {att.Created_By?.name ?? "—"} · {att.Created_Time ? formatDate(att.Created_Time) : "—"}
                 </p>
               </div>
-              <button
-                onClick={() => handleDownload(att)}
-                disabled={downloading === att.id}
-                className="shrink-0 flex items-center gap-1 text-[10px] font-medium text-navy hover:text-gold transition-colors disabled:opacity-50 border border-border rounded px-2 py-1"
-                title="Download"
-              >
-                {downloading === att.id
-                  ? <Loader2 size={10} className="animate-spin" />
-                  : <Paperclip size={10} />
-                }
-                {downloading === att.id ? "…" : "Download"}
-              </button>
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  onClick={() => handleDownload(att)}
+                  disabled={downloading === att.id}
+                  className="flex items-center gap-1 text-[10px] font-medium text-navy hover:text-gold transition-colors disabled:opacity-50 border border-border rounded px-2 py-1"
+                  title="Download"
+                >
+                  {downloading === att.id ? <Loader2 size={10} className="animate-spin" /> : <Paperclip size={10} />}
+                  {downloading === att.id ? "…" : "Download"}
+                </button>
+                <button
+                  onClick={() => handleDelete(att)}
+                  className="p-1 rounded text-muted-foreground hover:text-alert-red hover:bg-alert-red/10 transition-colors opacity-0 group-hover/att:opacity-100"
+                  title="Delete attachment"
+                >
+                  <Trash2 size={11} />
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -1119,10 +1725,7 @@ function ProspectFundedSection({ funded }: { funded: ZohoFundedRecord[] }) {
   const [expanded, setExpanded] = useState(true);
   return (
     <div>
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-2 w-full text-left group"
-      >
+      <button onClick={() => setExpanded(!expanded)} className="flex items-center gap-2 w-full text-left group">
         {expanded ? <ChevronDown size={14} className="text-muted-foreground shrink-0" /> : <ChevronRight size={14} className="text-muted-foreground shrink-0" />}
         <DollarSign size={14} className="text-emerald-600 shrink-0" />
         <h3 className="text-sm font-semibold text-navy">Funded Investor Records</h3>
@@ -1130,15 +1733,16 @@ function ProspectFundedSection({ funded }: { funded: ZohoFundedRecord[] }) {
       </button>
       {expanded && (
         <div className="mt-3 pl-5 space-y-2">
-          {funded.length === 0 ? (
-            <p className="text-sm text-muted-foreground italic">No funded investor records.</p>
-          ) : funded.map((rec) => (
-            <div key={rec.id} className="rounded-md border bg-card px-3 py-2.5 space-y-0.5">
-              <p className="text-xs font-semibold text-navy">{rec.Name ?? "—"}</p>
-              {rec.Email && <p className="text-[11px] text-muted-foreground">{rec.Email}</p>}
-              {rec.Owner && <p className="text-[10px] text-muted-foreground">Owner: {rec.Owner.name}</p>}
-            </div>
-          ))}
+          {funded.length === 0
+            ? <p className="text-sm text-muted-foreground italic">No funded investor records.</p>
+            : funded.map(rec => (
+              <div key={rec.id} className="rounded-md border bg-card px-3 py-2.5 space-y-0.5">
+                <p className="text-xs font-semibold text-navy">{rec.Name ?? "—"}</p>
+                {rec.Email && <p className="text-[11px] text-muted-foreground">{rec.Email}</p>}
+                {rec.Owner && <p className="text-[10px] text-muted-foreground">Owner: {rec.Owner.name}</p>}
+              </div>
+            ))
+          }
         </div>
       )}
     </div>
@@ -1153,52 +1757,38 @@ export default function ProspectDetailPage() {
   const searchParams = useSearchParams();
   const id = params.id;
 
-  // Resolve back-navigation label + path from the ?from= query param
   const fromParam = searchParams.get("from");
   const backNav: { label: string; href: string } =
-    fromParam === "dashboard"
-      ? { label: "Dashboard", href: "/" }
-      : fromParam === "people"
-      ? { label: "People", href: "/people" }
-      : { label: "Pipeline", href: "/pipeline" };
+    fromParam === "dashboard" ? { label: "Dashboard", href: "/" }
+    : fromParam === "people"   ? { label: "People",    href: "/people" }
+    :                            { label: "Pipeline",  href: "/pipeline" };
 
-  const [prospect, setProspect] = useState<ZohoProspectDetail | null>(null);
-  const [notes, setNotes] = useState<ZohoNote[]>([]);
-  const [timeline, setTimeline] = useState<ZohoTimelineEvent[]>([]);
-  const [emails, setEmails] = useState<ZohoEmail[]>([]);
-  const [calls, setCalls] = useState<ZohoCall[]>([]);
-  const [events, setEvents] = useState<ZohoEvent[]>([]);
+  const [prospect,     setProspect]     = useState<ZohoProspectDetail | null>(null);
+  const [notes,        setNotes]        = useState<ZohoNote[]>([]);
   const [stageHistory, setStageHistory] = useState<ZohoStageHistory[]>([]);
-  const [attachments, setAttachments] = useState<ZohoAttachment[]>([]);
-  const [tasks, setTasks] = useState<ZohoTask[]>([]);
-  const [funded, setFunded] = useState<ZohoFundedRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [attachments,  setAttachments]  = useState<ZohoAttachment[]>([]);
+  const [tasks,        setTasks]        = useState<ZohoTask[]>([]);
+  const [funded,       setFunded]       = useState<ZohoFundedRecord[]>([]);
+  const [loading,      setLoading]      = useState(true);
+  const [error,        setError]        = useState<string | null>(null);
 
   const fetchAll = useCallback(async (isRetry = false) => {
-    setLoading(true);
-    setError(null);
-    const token = getToken();
-    if (!token) { router.replace("/login?error=Session+expired."); return; }
-    const headers = { Authorization: `Bearer ${token}` };
+    setLoading(true); setError(null);
 
     try {
-      const [detailRes, notesRes, timelineRes, emailsRes, callsRes, eventsRes, stageHistoryRes, attachmentsRes, tasksRes, fundedRes] = await Promise.all([
-        fetch(`/api/prospects/${id}`,               { headers, credentials: "same-origin" }),
-        fetch(`/api/prospects/${id}/notes`,         { headers, credentials: "same-origin" }),
-        fetch(`/api/prospects/${id}/timeline`,      { headers, credentials: "same-origin" }),
-        fetch(`/api/prospects/${id}/emails`,        { headers, credentials: "same-origin" }),
-        fetch(`/api/prospects/${id}/calls`,         { headers, credentials: "same-origin" }),
-        fetch(`/api/prospects/${id}/events`,        { headers, credentials: "same-origin" }),
-        fetch(`/api/prospects/${id}/stage-history`, { headers, credentials: "same-origin" }),
-        fetch(`/api/prospects/${id}/attachments`,   { headers, credentials: "same-origin" }),
-        fetch(`/api/prospects/${id}/tasks`,         { headers, credentials: "same-origin" }),
-        fetch(`/api/prospects/${id}/funded`,        { headers, credentials: "same-origin" }),
-      ]);
+      const [detailRes, notesRes, stageHistRes, attachRes, tasksRes, fundedRes] =
+        await Promise.all([
+          fetch(`/api/prospects/${id}`,               { credentials: "same-origin" }),
+          fetch(`/api/prospects/${id}/notes`,         { credentials: "same-origin" }),
+          fetch(`/api/prospects/${id}/stage-history`, { credentials: "same-origin" }),
+          fetch(`/api/prospects/${id}/attachments`,   { credentials: "same-origin" }),
+          fetch(`/api/prospects/${id}/tasks`,         { credentials: "same-origin" }),
+          fetch(`/api/prospects/${id}/funded`,        { credentials: "same-origin" }),
+        ]);
 
       if (detailRes.status === 401 && !isRetry) {
-        const refreshed = await refreshZohoAccessToken();
-        if (refreshed) return fetchAll(true);
+        const ok = (await fetch("/api/auth/zoho/refresh", { method: "POST", credentials: "same-origin" })).ok;
+        if (ok) return fetchAll(true);
         router.replace("/login?error=Session+expired.");
         return;
       }
@@ -1211,27 +1801,20 @@ export default function ProspectDetailPage() {
       const safe = async <T,>(res: Response, fallback: T): Promise<T> =>
         res.ok ? ((await res.json()) as { data: T }).data : fallback;
 
-      const [detailData, notesData, timelineData, emailsData, callsData, eventsData, stageHistoryData, attachmentsData, tasksData, fundedData] = await Promise.all([
-        (detailRes.json() as Promise<{ data: ZohoProspectDetail }>).then((j) => j.data),
-        safe<ZohoNote[]>(notesRes, []),
-        safe<ZohoTimelineEvent[]>(timelineRes, []),
-        safe<ZohoEmail[]>(emailsRes, []),
-        safe<ZohoCall[]>(callsRes, []),
-        safe<ZohoEvent[]>(eventsRes, []),
-        safe<ZohoStageHistory[]>(stageHistoryRes, []),
-        safe<ZohoAttachment[]>(attachmentsRes, []),
-        safe<ZohoTask[]>(tasksRes, []),
-        safe<ZohoFundedRecord[]>(fundedRes, []),
-      ]);
+      const [detailData, notesData, stageHistData, attachData, tasksData, fundedData] =
+        await Promise.all([
+          (detailRes.json() as Promise<{ data: ZohoProspectDetail }>).then(j => j.data),
+          safe<ZohoNote[]>(notesRes, []),
+          safe<ZohoStageHistory[]>(stageHistRes, []),
+          safe<ZohoAttachment[]>(attachRes, []),
+          safe<ZohoTask[]>(tasksRes, []),
+          safe<ZohoFundedRecord[]>(fundedRes, []),
+        ]);
 
       setProspect(detailData);
       setNotes(notesData);
-      setTimeline(timelineData);
-      setEmails(emailsData);
-      setCalls(callsData);
-      setEvents(eventsData);
-      setStageHistory(stageHistoryData);
-      setAttachments(attachmentsData);
+      setStageHistory(stageHistData);
+      setAttachments(attachData);
       setTasks(tasksData);
       setFunded(fundedData);
     } catch {
@@ -1243,7 +1826,87 @@ export default function ProspectDetailPage() {
 
   useEffect(() => { void fetchAll(); }, [fetchAll]);
 
-  // Loading
+  // ── Mutation callbacks ────────────────────────────────────────────────────
+
+  const updateProspect = useCallback(async (fields: Record<string, unknown>) => {
+    const res = await makeRequest(`/api/prospects/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(fields),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error((body as { error?: string }).error ?? "Failed to update.");
+    }
+    setProspect(prev => prev ? { ...prev, ...fields } as ZohoProspectDetail : prev);
+  }, [id]);
+
+  const addNote = useCallback(async (title: string, content: string) => {
+    const res = await makeRequest(`/api/prospects/${id}/notes`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title, content }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error((body as { error?: string }).error ?? "Failed to create note.");
+    }
+    const json = await res.json() as { data: ZohoNote };
+    const currentUser = getCurrentUserRef();
+    const note: ZohoNote = {
+      ...json.data,
+      Created_By: currentUser ?? json.data.Created_By,
+    };
+    setNotes(prev => [note, ...prev]);
+  }, [id]);
+
+  const editNote = useCallback(async (noteId: string, title: string, content: string) => {
+    const res = await makeRequest(`/api/prospects/${id}/notes/${noteId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title, content }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error((body as { error?: string }).error ?? "Failed to update note.");
+    }
+    setNotes(prev => prev.map(n =>
+      n.id === noteId ? { ...n, Note_Title: title.trim() || null, Note_Content: content.trim() } : n
+    ));
+  }, [id]);
+
+  const deleteNote = useCallback(async (noteId: string) => {
+    const res = await makeRequest(`/api/prospects/${id}/notes/${noteId}`, { method: "DELETE" });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error((body as { error?: string }).error ?? "Failed to delete note.");
+    }
+    setNotes(prev => prev.filter(n => n.id !== noteId));
+  }, [id]);
+
+  const uploadAttachment = useCallback(async (file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    const res = await makeRequest(`/api/prospects/${id}/attachments`, { method: "POST", body: formData });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error((body as { error?: string }).error ?? "Upload failed.");
+    }
+    const json = await res.json() as { data: ZohoAttachment };
+    setAttachments(prev => [...prev, json.data]);
+  }, [id]);
+
+  const deleteAttachment = useCallback(async (attachmentId: string) => {
+    const res = await makeRequest(`/api/prospects/${id}/attachments/${attachmentId}`, { method: "DELETE" });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error((body as { error?: string }).error ?? "Failed to delete attachment.");
+    }
+    setAttachments(prev => prev.filter(a => a.id !== attachmentId));
+  }, [id]);
+
+  // ── Loading ───────────────────────────────────────────────────────────────
+
   if (loading) {
     return (
       <div className="w-full">
@@ -1267,7 +1930,6 @@ export default function ProspectDetailPage() {
     );
   }
 
-  // Error
   if (error || !prospect) {
     return (
       <div className="w-full px-3 md:px-8 pt-8">
@@ -1278,8 +1940,6 @@ export default function ProspectDetailPage() {
       </div>
     );
   }
-
-  const unifiedActivities = buildUnifiedTimeline(timeline, emails, calls, events);
 
   return (
     <div className="w-full overflow-x-hidden">
@@ -1292,37 +1952,56 @@ export default function ProspectDetailPage() {
 
       {/* Cockpit Zone — sticky */}
       <div className="sticky top-[33px] z-10 bg-background border-b px-3 md:px-8 py-3 md:py-4 space-y-2 md:space-y-3 overflow-hidden">
-        <ProspectIdentityBar prospect={prospect} />
-        <ProspectNextActionBar prospect={prospect} />
+        <ProspectIdentityBar prospect={prospect} onUpdate={updateProspect} />
+        {prospect.Pipeline_Stage !== "Funded" && (
+          <ProspectNextActionBar prospect={prospect} onUpdate={updateProspect} />
+        )}
       </div>
 
-      {/* Detail Zone — scrollable */}
+      {/* Detail Zone */}
       <div className="px-3 md:px-8 py-4 md:py-6">
         <div className="flex flex-col lg:flex-row lg:gap-6">
 
           {/* Left column */}
-          <div className="flex-1 min-w-0 space-y-5">
-            <ProspectProfileCard prospect={prospect} />
-            <ProspectActivityTimeline activities={unifiedActivities} />
-            <Separator />
-            <ProspectStageHistorySection history={stageHistory} />
+          <div className="flex-1 min-w-0 space-y-3 lg:space-y-5">
+            <ProspectProfileCard prospect={prospect} onUpdate={updateProspect} />
+            <div className="rounded-lg border bg-card p-3 lg:border-0 lg:rounded-none lg:bg-transparent lg:p-0">
+              <ProspectActivityTimeline prospectId={id} />
+            </div>
+            <div className="rounded-lg border bg-card p-3 lg:border-0 lg:rounded-none lg:bg-transparent lg:p-0">
+              <ProspectStageHistorySection history={stageHistory} />
+            </div>
           </div>
 
           {/* Right column */}
-          <div className="lg:w-[300px] xl:w-[340px] lg:shrink-0 mt-5 lg:mt-0 space-y-5">
-            <ProspectNotesSection notes={notes} />
-            <Separator />
-            <ProspectTasksSection tasks={tasks} />
-            <Separator />
-            <ProspectAttachmentsSection attachments={attachments} prospectId={id} />
-            <Separator />
-            <ProspectFundedSection funded={funded} />
-            <Separator />
-            <ProspectRecordInfo prospect={prospect} />
+          <div className="lg:w-[300px] xl:w-[340px] lg:shrink-0 mt-3 lg:mt-0 space-y-3 lg:space-y-5">
+            <div className="rounded-lg border bg-card p-3 lg:border-0 lg:rounded-none lg:bg-transparent lg:p-0">
+              <ProspectNotesSection
+                notes={notes}
+                onAdd={addNote}
+                onEdit={editNote}
+                onDelete={deleteNote}
+              />
+            </div>
+            <div className="rounded-lg border bg-card p-3 lg:border-0 lg:rounded-none lg:bg-transparent lg:p-0">
+              <ProspectTasksSection tasks={tasks} />
+            </div>
+            <div className="rounded-lg border bg-card p-3 lg:border-0 lg:rounded-none lg:bg-transparent lg:p-0">
+              <ProspectAttachmentsSection
+                attachments={attachments}
+                prospectId={id}
+                onUpload={uploadAttachment}
+                onDelete={deleteAttachment}
+              />
+            </div>
+            <div className="rounded-lg border bg-card p-3 lg:border-0 lg:rounded-none lg:bg-transparent lg:p-0">
+              <ProspectFundedSection funded={funded} />
+            </div>
+            <div className="rounded-lg border bg-card p-3 lg:border-0 lg:rounded-none lg:bg-transparent lg:p-0">
+              <ProspectRecordInfo prospect={prospect} />
+            </div>
           </div>
         </div>
-
-        <Separator className="mt-5 lg:hidden" />
       </div>
     </div>
   );

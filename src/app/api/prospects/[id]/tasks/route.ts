@@ -3,20 +3,16 @@ import { getSession } from "@/lib/session";
 import { getProspectTasks } from "@/services/prospects";
 
 export async function GET(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
-  const authHeader = request.headers.get("authorization") ?? "";
-  const accessToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : null;
-  if (!accessToken) return NextResponse.json({ error: "Missing access token." }, { status: 400 });
-
   const { id } = await params;
 
   try {
-    const data = await getProspectTasks(accessToken, id);
+    const data = await getProspectTasks(session.accessToken, id);
     return NextResponse.json({ data });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to fetch tasks.";

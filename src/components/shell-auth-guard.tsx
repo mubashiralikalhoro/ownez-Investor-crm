@@ -2,49 +2,33 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import {
-  hasAuthTokens,
-  isAccessTokenLikelyExpired,
-  refreshZohoAccessToken,
-  clearAuthTokens,
-} from "@/lib/auth-storage";
 
 type GuardStatus = "checking" | "ok" | "redirect";
 
 export function ShellAuthGuard({ children }: { children: React.ReactNode }) {
-  const router = useRouter();
+  const router   = useRouter();
   const pathname = usePathname();
   const [status, setStatus] = useState<GuardStatus>("checking");
 
   useEffect(() => {
     void (async () => {
+      // Wait one microtask so RSC hydration settles first.
       await new Promise<void>((r) => queueMicrotask(r));
 
-      if (!hasAuthTokens()) {
-        setStatus("redirect");
-        const next = pathname && pathname !== "/" ? pathname : "/";
-        router.replace(`/login?next=${encodeURIComponent(next)}`);
-        return;
-      }
-
       const me = await fetch("/api/auth/me", { credentials: "same-origin" });
+
       if (!me.ok) {
-        clearAuthTokens();
-        setStatus("redirect");
-        const next = pathname && pathname !== "/" ? pathname : "/";
-        router.replace(`/login?next=${encodeURIComponent(next)}`);
-        return;
-      }
+        // Try a silent token refresh before giving up.
+        const refreshed = (
+          await fetch("/api/auth/zoho/refresh", { method: "POST", credentials: "same-origin" })
+        ).ok;
 
-      if (hasAuthTokens() && isAccessTokenLikelyExpired()) {
-        await refreshZohoAccessToken();
-      }
-
-      if (!hasAuthTokens()) {
-        setStatus("redirect");
-        const next = pathname && pathname !== "/" ? pathname : "/";
-        router.replace(`/login?next=${encodeURIComponent(next)}`);
-        return;
+        if (!refreshed) {
+          setStatus("redirect");
+          const next = pathname && pathname !== "/" ? pathname : "/";
+          router.replace(`/login?next=${encodeURIComponent(next)}`);
+          return;
+        }
       }
 
       setStatus("ok");

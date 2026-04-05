@@ -1,44 +1,42 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { exchangeRefreshToken } from "@/lib/zoho/oauth";
+import {
+  ZOHO_ACCESS_COOKIE,
+  ZOHO_REFRESH_COOKIE,
+  ACCESS_COOKIE_MAX_AGE,
+  SESSION_COOKIE_MAX_AGE,
+  cookieOptions,
+} from "@/lib/session-constants";
 
-export async function POST(request: Request) {
-  let body: { refresh_token?: string; api_domain?: string };
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
-  }
+/**
+ * POST /api/auth/zoho/refresh
+ * No body required — reads the refresh token from the httpOnly cookie.
+ * Updates the access token cookie and optionally rotates the refresh token.
+ */
+export async function POST() {
+  const jar = await cookies();
+  const refreshToken = jar.get(ZOHO_REFRESH_COOKIE)?.value?.trim();
 
-  const refreshToken = body.refresh_token?.trim();
   if (!refreshToken) {
-    return NextResponse.json({ error: "refresh_token is required." }, { status: 400 });
+    return NextResponse.json({ error: "No refresh token." }, { status: 401 });
   }
 
   try {
-    const tokens = await exchangeRefreshToken(refreshToken);
-    const expiresAtMs = Date.now() + (tokens.expires_in ?? 3600) * 1000;
-    const apiDomain =
-      tokens.api_domain?.replace(/\/$/, "") ||
-      body.api_domain?.replace(/\/$/, "") ||
-      "";
+    const tokens      = await exchangeRefreshToken(refreshToken);
+    const accessMaxAge = tokens.expires_in ?? ACCESS_COOKIE_MAX_AGE;
 
-    if (!apiDomain) {
-      return NextResponse.json(
-        { error: "api_domain missing from Zoho response; pass api_domain in the request body." },
-        { status: 502 }
-      );
+    const res = NextResponse.json({ ok: true });
+    res.cookies.set(ZOHO_ACCESS_COOKIE, tokens.access_token, cookieOptions(accessMaxAge));
+
+    // Zoho may rotate the refresh token — update it when a new one is returned.
+    if (tokens.refresh_token) {
+      res.cookies.set(ZOHO_REFRESH_COOKIE, tokens.refresh_token, cookieOptions(SESSION_COOKIE_MAX_AGE));
     }
 
-    return NextResponse.json({
-      access_token: tokens.access_token,
-      refresh_token: tokens.refresh_token ?? refreshToken,
-      api_domain: apiDomain,
-      expires_in: tokens.expires_in,
-      expires_at_ms: expiresAtMs,
-      token_type: tokens.token_type,
-    });
+    return res;
   } catch (e) {
     const message = e instanceof Error ? e.message : "Refresh failed.";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return NextResponse.json({ error: message }, { status: 401 });
   }
 }

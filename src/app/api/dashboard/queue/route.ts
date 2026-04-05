@@ -11,26 +11,14 @@ import { getDashboardQueueProspects } from "@/services/prospects";
  * Pages through ALL results — no missing overdue prospects regardless of
  * total pipeline size.
  */
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
 
-  const authHeader = request.headers.get("authorization") ?? "";
-  const accessToken = authHeader.startsWith("Bearer ")
-    ? authHeader.slice(7).trim()
-    : null;
-
-  if (!accessToken) {
-    return NextResponse.json(
-      { error: "Missing Zoho access token in Authorization: Bearer <token> header." },
-      { status: 400 }
-    );
-  }
-
   try {
-    const data = await getDashboardQueueProspects(accessToken);
+    const data = await getDashboardQueueProspects(session.accessToken);
     return NextResponse.json({ data });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to fetch dashboard queue.";

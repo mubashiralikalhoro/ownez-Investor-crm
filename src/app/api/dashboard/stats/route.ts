@@ -21,7 +21,7 @@ const CACHE_TTL_MS = 12 * 60 * 1000; // 12 minutes
  *   X-Cache-Age  : seconds since last cache write
  *   X-Cache-TTL  : seconds until cache expires
  */
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
@@ -48,21 +48,9 @@ export async function GET(request: NextRequest) {
   }
 
   // ── Cache MISS — fetch from Zoho ─────────────────────────────────────────
-  const authHeader = request.headers.get("authorization") ?? "";
-  const accessToken = authHeader.startsWith("Bearer ")
-    ? authHeader.slice(7).trim()
-    : null;
-
-  if (!accessToken) {
-    return NextResponse.json(
-      { error: "Missing Zoho access token in Authorization: Bearer <token> header." },
-      { status: 400 }
-    );
-  }
-
   try {
     console.log("[dashboard/stats] Cache MISS — fetching all pages from Zoho...");
-    const stats = await getDashboardStatsFromZoho(accessToken);
+    const stats = await getDashboardStatsFromZoho(session.accessToken);
 
     serverCache.set(CACHE_KEY, stats, CACHE_TTL_MS);
     console.log(

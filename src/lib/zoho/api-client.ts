@@ -55,7 +55,8 @@ _client.interceptors.response.use(
     logger.error(
       `← ${error.response?.status ?? "network_error"} ${error.config?.url ?? ""} (${ms}ms)`,
       {
-        zoho_response: body,
+        // JSON.stringify so nested objects are fully visible in the server log
+        zoho_response: body ? JSON.stringify(body) : undefined,
         axios_message: error.message,
       }
     );

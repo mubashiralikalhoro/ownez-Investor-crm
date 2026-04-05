@@ -45,30 +45,18 @@ function addUser(map: Map<string, UserSeed>, seed: UserSeed | null | undefined) 
 
 // ─── Route ────────────────────────────────────────────────────────────────────
 
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
 
-  const authHeader = request.headers.get("authorization") ?? "";
-  const accessToken = authHeader.startsWith("Bearer ")
-    ? authHeader.slice(7).trim()
-    : null;
-
-  if (!accessToken) {
-    return NextResponse.json(
-      { error: "Missing Zoho access token in Authorization: Bearer <token> header." },
-      { status: 400 }
-    );
-  }
-
   try {
     // ── Fetch all three sources in parallel ──────────────────────────────────
     const [notes, calls, events] = await Promise.all([
-      getRecentActivityNotes(accessToken, 15),
-      getRecentCalls(accessToken, 10),
-      getRecentEvents(accessToken, 8),
+      getRecentActivityNotes(session.accessToken, 15),
+      getRecentCalls(session.accessToken, 10),
+      getRecentEvents(session.accessToken, 8),
     ]);
 
     const allEntries: RecentActivityEntry[] = [];

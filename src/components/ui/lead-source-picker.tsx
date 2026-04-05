@@ -1,9 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { LEAD_SOURCES } from "@/lib/constants";
 import { ChevronDown, ChevronUp } from "lucide-react";
-import { demoData } from "@/data/store";
 
 const TOP_COUNT = 5;
 
@@ -14,46 +13,29 @@ interface LeadSourcePickerProps {
 
 export function LeadSourcePicker({ value, onChange }: LeadSourcePickerProps) {
   const [expanded, setExpanded] = useState(false);
-  const [sortedSources, setSortedSources] = useState(LEAD_SOURCES);
+  const [extraSources, setExtraSources] = useState<{ key: string; label: string }[]>([]);
   const [newSource, setNewSource] = useState("");
   const [adding, setAdding] = useState(false);
 
-  useEffect(() => {
-    demoData
-      .getLeadSources()
-      .then((configs) => {
-        setSortedSources(configs.map((c) => ({ key: c.key, label: c.label })));
-      })
-      .catch(() => {});
-  }, []);
-
-  const primary = sortedSources.slice(0, TOP_COUNT);
-  const secondary = sortedSources.slice(TOP_COUNT);
+  const allSources = [...LEAD_SOURCES, ...extraSources];
+  const primary = allSources.slice(0, TOP_COUNT);
+  const secondary = allSources.slice(TOP_COUNT);
   const selectedInSecondary = secondary.some((s) => s.key === value);
   const showSecondary = expanded || selectedInSecondary;
 
-  async function handleAddSource() {
-    if (!newSource.trim()) return;
+  function handleAddSource() {
     const label = newSource.trim();
+    if (!label) return;
     const key = label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
 
-    // If it already exists, just select it
-    const existing = sortedSources.find((s) => s.key === key);
+    const existing = allSources.find((s) => s.key === key || s.label.toLowerCase() === label.toLowerCase());
     if (existing) {
       onChange(existing.key);
-      setNewSource("");
-      setAdding(false);
-      return;
-    }
-
-    try {
-      const created = await demoData.createLeadSource({ label });
-      setSortedSources((prev) => [...prev, { key: created.key, label: created.label }]);
-      onChange(created.key);
-    } catch {
-      setSortedSources((prev) => [...prev, { key, label }]);
+    } else {
+      setExtraSources((prev) => [...prev, { key, label }]);
       onChange(key);
     }
+
     setNewSource("");
     setAdding(false);
   }
@@ -88,7 +70,6 @@ export function LeadSourcePicker({ value, onChange }: LeadSourcePickerProps) {
         )}
       </div>
 
-      {/* Expanded controls: collapse + add new */}
       {showSecondary && (
         <div className="flex items-center gap-2 mt-2">
           {adding ? (

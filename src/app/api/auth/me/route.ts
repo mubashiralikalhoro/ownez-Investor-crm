@@ -1,24 +1,17 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { SESSION_COOKIE_NAME } from "@/lib/session-constants";
-import { verifySessionJwt } from "@/lib/session-jwt";
+import { getSession } from "@/lib/session";
 
-/** Verified session for clients — role comes from JWT, not localStorage. */
+/** Returns the verified session user — role comes from the httpOnly cookie, not localStorage. */
 export async function GET() {
-  const token = (await cookies()).get(SESSION_COOKIE_NAME)?.value;
-  if (!token) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const v = await verifySessionJwt(token);
-  if (!v) {
+  const session = await getSession();
+  if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   return NextResponse.json({
-    userId: v.sub,
-    email: v.email,
-    fullName: v.name,
-    role: v.role,
+    userId:   session.userId,
+    email:    session.email,
+    fullName: session.fullName,
+    role:     session.role,
   });
 }

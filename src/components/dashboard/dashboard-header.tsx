@@ -19,22 +19,20 @@ import { getTodayCT, formatRelativeDate, formatCurrency, formatDate, formatTime 
 import { DateQuickPick } from "@/components/ui/date-quick-pick";
 import { CreateProspectSheet } from "./create-prospect-sheet";
 import { demoData } from "@/data/store";
-import type { PersonWithComputed, User, Activity, PipelineStage, NextActionType } from "@/lib/types";
+import type { PersonWithComputed, Activity, PipelineStage, NextActionType } from "@/lib/types";
 
 const DEMO_USER = "u-chad";
 
 interface DashboardHeaderProps {
   prospects: PersonWithComputed[];
-  currentUserId: string;
-  users: User[];
 }
 
-export function DashboardHeader({ prospects, currentUserId, users }: DashboardHeaderProps) {
+export function DashboardHeader({ prospects }: DashboardHeaderProps) {
   return (
     <div className="flex items-center justify-between mb-6 gap-3">
       <h1 className="text-lg md:text-xl font-semibold text-navy shrink-0">Dashboard</h1>
       <div className="flex items-center gap-2 md:gap-3">
-        <CreateProspectSheet currentUserId={currentUserId} users={users} />
+        <CreateProspectSheet />
         <LogActivitySheet prospects={prospects} />
       </div>
     </div>

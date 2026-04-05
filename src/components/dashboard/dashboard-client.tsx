@@ -8,7 +8,6 @@ import { HeroCard, HeroCardEmpty } from "@/components/dashboard/hero-card";
 import { ActionQueue } from "@/components/dashboard/action-queue";
 import { StatsFooter } from "@/components/dashboard/stats-footer";
 import { RecentActivity } from "@/components/dashboard/recent-activity";
-import { refreshZohoAccessToken } from "@/lib/auth-storage";
 import type { ZohoProspect } from "@/types";
 import type {
   PersonWithComputed,
@@ -16,6 +15,12 @@ import type {
   DashboardStats,
   LeadSource,
 } from "@/lib/types";
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+async function tryRefresh(): Promise<boolean> {
+  return (await fetch("/api/auth/zoho/refresh", { method: "POST", credentials: "same-origin" })).ok;
+}
 
 // ─── Stage key mapping ────────────────────────────────────────────────────────
 
@@ -55,10 +60,6 @@ function daysBetween(dateStr: string, today: string): number {
   const a = new Date(dateStr + "T00:00:00");
   const b = new Date(today + "T00:00:00");
   return Math.round((b.getTime() - a.getTime()) / (1000 * 60 * 60 * 24));
-}
-
-function getToken(): string | null {
-  return typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
 }
 
 /** Map a single ZohoProspect to the PersonWithComputed shape the UI components expect. */
@@ -209,27 +210,14 @@ export function DashboardClient() {
     setLoading(true);
     setError(null);
 
-    const token = getToken();
-    if (!token) {
-      router.replace("/login?error=Session+expired.");
-      return;
-    }
-
-    const headers = { Authorization: `Bearer ${token}` };
-
     try {
-      // Two parallel GET queries on initial load:
-      // 1. /api/dashboard/queue  — active prospects (excl. Dead/Funded), all pages
-      // 2. /api/dashboard/stats  — minimal-field query for the stats footer
-      // Recent Activity is fetched lazily when the user expands that section.
       const [queueRes, statsRes] = await Promise.all([
-        fetch("/api/dashboard/queue", { headers, credentials: "same-origin" }),
-        fetch("/api/dashboard/stats", { headers, credentials: "same-origin" }),
+        fetch("/api/dashboard/queue", { credentials: "same-origin" }),
+        fetch("/api/dashboard/stats", { credentials: "same-origin" }),
       ]);
 
-      // Handle token expiry on any response
       if ((queueRes.status === 401 || statsRes.status === 401) && !isRetry) {
-        const ok = await refreshZohoAccessToken();
+        const ok = await tryRefresh();
         if (ok) { fetchAll(true); return; }
         router.replace("/login?error=Session+expired.");
         return;
@@ -241,14 +229,12 @@ export function DashboardClient() {
         return;
       }
 
-      const today = todayISO();
+      const today    = todayISO();
       const queueJson = await queueRes.json() as { data: ZohoProspect[] };
-      const mapped = (queueJson.data ?? []).map(p => toPersonWithComputed(p, today));
-      setProspects(mapped);
+      setProspects((queueJson.data ?? []).map(p => toPersonWithComputed(p, today)));
 
       if (statsRes.ok) {
-        const statsJson = await statsRes.json() as DashboardStats;
-        setStats(statsJson);
+        setStats(await statsRes.json() as DashboardStats);
       }
     } catch {
       setError("Network error — could not load dashboard.");
@@ -325,8 +311,6 @@ export function DashboardClient() {
       {/* Zone 1: Header */}
       <DashboardHeader
         prospects={prospects.filter(p => p.roles.includes("prospect"))}
-        currentUserId=""
-        users={[]}
       />
 
       <div className="space-y-6">

@@ -6,12 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { ChevronDown, ChevronRight, Zap, Loader2, AlertCircle } from "lucide-react";
 import { ACTIVITY_TYPES } from "@/lib/constants";
 import { formatDate, formatTime } from "@/lib/format";
-import { refreshZohoAccessToken } from "@/lib/auth-storage";
 import type { RecentActivityEntry, User } from "@/lib/types";
-
-function getToken(): string | null {
-  return typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
-}
 
 export function RecentActivity() {
   const [expanded, setExpanded] = useState(false);
@@ -26,17 +21,11 @@ export function RecentActivity() {
     setFetching(true);
     setFetchError(null);
 
-    const token = getToken();
-    if (!token) { setFetchError("Session expired — please refresh."); setFetching(false); return; }
-
     try {
-      const res = await fetch("/api/dashboard/activity", {
-        headers: { Authorization: `Bearer ${token}` },
-        credentials: "same-origin",
-      });
+      const res = await fetch("/api/dashboard/activity", { credentials: "same-origin" });
 
       if (res.status === 401 && !isRetry) {
-        const ok = await refreshZohoAccessToken();
+        const ok = (await fetch("/api/auth/zoho/refresh", { method: "POST", credentials: "same-origin" })).ok;
         if (ok) { await fetchActivity(true); return; }
         setFetchError("Session expired — please refresh.");
         setFetching(false);

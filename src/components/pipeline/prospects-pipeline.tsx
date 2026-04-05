@@ -4,15 +4,13 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, AlertCircle, RefreshCw, ChevronLeft, ChevronRight, Search, X } from "lucide-react";
 import { PipelineTable } from "./pipeline-table";
-import { refreshZohoAccessToken } from "@/lib/auth-storage";
 import type { ZohoProspect, ZohoPaginationInfo } from "@/types";
 
 const PAGE_SIZE = 200;
 const SEARCH_DEBOUNCE_MS = 400;
 
-function getAccessToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem("access_token");
+async function tryRefresh(): Promise<boolean> {
+  return (await fetch("/api/auth/zoho/refresh", { method: "POST", credentials: "same-origin" })).ok;
 }
 
 type FilterOptions = {
@@ -58,13 +56,7 @@ export function ProspectsPipeline() {
       setLoading(true);
       setError(null);
 
-      const token = getAccessToken();
-      if (!token) {
-        router.replace("/login?error=Session+expired.+Please+log+in+again.");
-        return;
-      }
-
-      const params = new URLSearchParams({ page: String(targetPage), page_size: String(PAGE_SIZE) });
+      const params = new URLSearchParams({ page: String(targetPage), page_size: String(PAGE_SIZE), exclude_funded: "true" });
       if (debouncedSearch) params.set("search", debouncedSearch);
       if (stageFilter)     params.set("stage",  stageFilter);
       if (sourceFilter)    params.set("source", sourceFilter);
@@ -72,12 +64,11 @@ export function ProspectsPipeline() {
 
       try {
         const res = await fetch(`/api/prospects?${params.toString()}`, {
-          headers: { Authorization: `Bearer ${token}` },
           credentials: "same-origin",
         });
 
         if (res.status === 401 && !isRetry) {
-          const refreshed = await refreshZohoAccessToken();
+          const refreshed = await tryRefresh();
           if (refreshed) return fetchProspects(targetPage, true);
           router.replace("/login?error=Session+expired.+Please+log+in+again.");
           return;

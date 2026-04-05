@@ -245,4 +245,6 @@ export type ProspectFilters = {
   leadSource?: string;
   /** Zoho Owner.id exact match. */
   ownerId?: string;
+  /** When true, adds (Pipeline_Stage:not_equal:Funded) to the criteria. */
+  excludeFunded?: boolean;
 };
