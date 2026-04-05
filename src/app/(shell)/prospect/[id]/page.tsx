@@ -10,6 +10,7 @@ import {
   CheckCircle2, CircleDot, TrendingUp, DollarSign, User,
   X, Trash2, Upload, Check, Plus,
 } from "lucide-react";
+import { ProspectDetailSkeleton } from "@/components/prospect/prospect-skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { NoteEditor, NoteContent } from "@/components/ui/note-editor";
@@ -1908,26 +1909,7 @@ export default function ProspectDetailPage() {
   // ── Loading ───────────────────────────────────────────────────────────────
 
   if (loading) {
-    return (
-      <div className="w-full">
-        <div className="px-3 md:px-8 pt-3 md:pt-6">
-          <div className="h-3 w-20 animate-pulse rounded bg-muted" />
-        </div>
-        <div className="px-3 md:px-8 py-5 space-y-4">
-          <div className="space-y-2">
-            <div className="h-7 w-48 animate-pulse rounded bg-muted" />
-            <div className="h-4 w-32 animate-pulse rounded bg-muted" />
-          </div>
-          <div className="h-14 animate-pulse rounded-lg bg-muted" />
-          <div className="space-y-2">
-            {[...Array(3)].map((_, i) => <div key={i} className="h-6 animate-pulse rounded bg-muted" />)}
-          </div>
-          <div className="flex items-center justify-center gap-3 pt-8">
-            <Loader2 className="h-6 w-6 animate-spin text-gold" />
-          </div>
-        </div>
-      </div>
-    );
+    return <ProspectDetailSkeleton backLabel={backNav.label} />;
   }
 
   if (error || !prospect) {

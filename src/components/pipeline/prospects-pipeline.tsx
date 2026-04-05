@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, AlertCircle, RefreshCw, ChevronLeft, ChevronRight, Search, X } from "lucide-react";
 import { PipelineTable } from "./pipeline-table";
+import { PipelineTableSkeleton } from "./pipeline-skeleton";
 import type { ZohoProspect, ZohoPaginationInfo } from "@/types";
 
 const PAGE_SIZE = 200;
@@ -244,10 +245,7 @@ export function ProspectsPipeline() {
 
       {/* Table */}
       {loading && prospects.length === 0 ? (
-        <div className="flex min-h-[320px] flex-col items-center justify-center gap-3">
-          <Loader2 className="h-7 w-7 animate-spin text-gold" />
-          <p className="text-sm text-muted-foreground">Loading prospects from Zoho…</p>
-        </div>
+        <PipelineTableSkeleton />
       ) : (
         <PipelineTable prospects={prospects} />
       )}

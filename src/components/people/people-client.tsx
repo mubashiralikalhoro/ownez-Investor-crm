@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Loader2, AlertCircle, RefreshCw } from "lucide-react";
+import { AlertCircle, RefreshCw } from "lucide-react";
 import { PeopleSearch } from "@/components/people/people-search";
+import { PeopleSkeleton } from "@/components/people/people-skeleton";
 import type { ZohoProspect } from "@/types";
 import type { PersonWithComputed, PipelineStage, LeadSource } from "@/lib/types";
 
@@ -127,12 +128,7 @@ export function PeopleClient() {
   }, [fetchPeople]);
 
   if (loading) {
-    return (
-      <div className="flex items-center gap-2 py-16 text-sm text-muted-foreground">
-        <Loader2 size={16} className="animate-spin" />
-        Loading prospects from Zoho…
-      </div>
-    );
+    return <PeopleSkeleton />;
   }
 
   if (error) {
@@ -143,7 +139,7 @@ export function PeopleClient() {
           {error}
         </div>
         <button
-          onClick={fetchPeople}
+          onClick={() => fetchPeople()}
           className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-navy transition-colors"
         >
           <RefreshCw size={12} />

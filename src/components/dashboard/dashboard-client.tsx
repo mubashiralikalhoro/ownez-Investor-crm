@@ -2,8 +2,9 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, AlertCircle } from "lucide-react";
+import { AlertCircle } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
+import { DashboardSkeleton } from "@/components/dashboard/dashboard-skeleton";
 import { HeroCard, HeroCardEmpty } from "@/components/dashboard/hero-card";
 import { ActionQueue } from "@/components/dashboard/action-queue";
 import { StatsFooter } from "@/components/dashboard/stats-footer";
@@ -278,18 +279,7 @@ export function DashboardClient() {
   // ── Loading / Error states ─────────────────────────────────────────────────
 
   if (loading) {
-    return (
-      <div className="p-4 md:p-8">
-        <div className="h-6 w-32 animate-pulse rounded bg-muted mb-8" />
-        <div className="space-y-4">
-          <div className="h-28 animate-pulse rounded-lg bg-muted" />
-          <div className="h-64 animate-pulse rounded-lg bg-muted" />
-        </div>
-        <div className="flex items-center justify-center py-8">
-          <Loader2 className="h-6 w-6 animate-spin text-gold" />
-        </div>
-      </div>
-    );
+    return <DashboardSkeleton />;
   }
 
   if (error) {
