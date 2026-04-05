@@ -1,0 +1,38 @@
+# dependencies
+node_modules/
+
+# next.js
+.next/
+out/
+
+# production
+build/
+
+# env files
+.env*.local
+
+# debug
+npm-debug.log*
+
+# misc
+.DS_Store
+*.tsbuildinfo
+next-env.d.ts
+
+# test artifacts
+playwright-report/
+test-results/
+.playwright-mcp/
+
+# screenshots
+*.png
+
+# claude/superpowers
+.claude/
+.superpowers/
+
+.vercel
+.env*.local
+
+.deploy.sh
+.env
