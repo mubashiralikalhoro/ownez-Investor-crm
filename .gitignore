@@ -24,8 +24,7 @@ playwright-report/
 test-results/
 .playwright-mcp/
 
-# screenshots
-*.png
+
 
 # claude/superpowers
 .claude/
