@@ -137,7 +137,7 @@ export function DashboardClient() {
       if (res.status === 401 && !isRetry) {
         const ok = await tryRefresh();
         if (ok) { fetchAll(true); return; }
-        router.replace("/login?error=Session+expired.");
+        router.replace("/login?next=/");
         return;
       }
 
@@ -214,7 +214,7 @@ export function DashboardClient() {
     <div className="p-4 md:p-8">
       {/* Zone 1: Header */}
       <DashboardHeader
-        prospects={prospects.filter(p => p.roles.includes("prospect"))}
+        prospects={prospects.filter(p => p.pipelineStage !== "funded")}
       />
 
       <div className="space-y-6">

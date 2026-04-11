@@ -181,20 +181,44 @@ export async function getProspectsList(
 const ALL_PROSPECTS_CACHE_KEY = "all-prospects";
 const ALL_PROSPECTS_TTL_MIN = 30;
 
+/** Cached payload shape — stores the full Prospect list alongside a timestamp. */
+type AllProspectsCacheEntry = {
+  cachedAt: number; // epoch ms
+  data: ZohoProspect[];
+};
+
+export type AllProspectsResult = {
+  /** Epoch ms when the cache entry was first written. */
+  cachedAt: number;
+  /** True when the payload came from Redis; false when freshly refetched. */
+  fromCache: boolean;
+  data: ZohoProspect[];
+};
+
 /**
  * Fetches every Prospect record from Zoho CRM — funded and non-funded —
  * by walking all pages (200 records each) and accumulating results.
  *
  * The full list is cached in Redis for 30 minutes so repeated dashboard
- * calls within that window hit cache instead of Zoho.
+ * calls within that window hit cache instead of Zoho. Pass `force: true`
+ * to bypass the cache and repopulate it.
  *
  * @param accessToken  Zoho OAuth access token (used only on a cache miss).
+ * @param opts.force   When true, ignores any cached entry and fetches fresh.
  */
-export async function getAllProspects(accessToken: string): Promise<ZohoProspect[]> {
-  const cached = await apiCache.getJSON<ZohoProspect[]>(ALL_PROSPECTS_CACHE_KEY);
-  if (cached) {
-    printLog('[Redis] Cache hit for all prospects');
-    return cached;
+export async function getAllProspects(
+  accessToken: string,
+  opts: { force?: boolean } = {},
+): Promise<AllProspectsResult> {
+  if (!opts.force) {
+    const cached = await apiCache.getJSON<AllProspectsCacheEntry>(ALL_PROSPECTS_CACHE_KEY);
+    if (cached && Array.isArray(cached.data) && typeof cached.cachedAt === "number") {
+      printLog('[Redis] Cache hit for all prospects');
+      return { data: cached.data, cachedAt: cached.cachedAt, fromCache: true };
+    }
+  } else {
+    printLog('[Redis] Force-refresh requested; bypassing all-prospects cache');
+    await apiCache.remove(ALL_PROSPECTS_CACHE_KEY);
   }
 
   const all: ZohoProspect[] = [];
@@ -208,8 +232,10 @@ export async function getAllProspects(accessToken: string): Promise<ZohoProspect
     page += 1;
   }
 
-  await apiCache.setJSON(ALL_PROSPECTS_CACHE_KEY, all, ALL_PROSPECTS_TTL_MIN);
-  return all;
+  const cachedAt = Date.now();
+  const entry: AllProspectsCacheEntry = { cachedAt, data: all };
+  await apiCache.setJSON(ALL_PROSPECTS_CACHE_KEY, entry, ALL_PROSPECTS_TTL_MIN);
+  return { data: all, cachedAt, fromCache: false };
 }
 
 // ─── Dashboard recent activity (global Notes) ────────────────────────────────
@@ -429,6 +455,154 @@ export async function createFundedInvestor(
     );
   }
   return result.details.id;
+}
+
+// ─── Calls & Events create ───────────────────────────────────────────────────
+
+type ZohoCreateResponse = {
+  data?: Array<{
+    code: string;
+    status: string;
+    message?: string;
+    details?: { id?: string };
+  }>;
+};
+
+/** ISO 8601 with `-05:00` / `-06:00` America/Chicago offset. */
+function toChicagoIso(d: Date): string {
+  // Get the zone offset minutes for America/Chicago at the given instant.
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Chicago",
+    timeZoneName: "shortOffset",
+  }).formatToParts(d);
+  const off = parts.find(p => p.type === "timeZoneName")?.value ?? "GMT-6";
+  // "GMT-5" or "GMT-05:00" — normalize to "-HH:MM".
+  const m = off.match(/GMT([+-])(\d{1,2})(?::?(\d{2}))?/);
+  const sign = m?.[1] ?? "-";
+  const hh = String(parseInt(m?.[2] ?? "6", 10)).padStart(2, "0");
+  const mm = m?.[3] ?? "00";
+  const tz = `${sign}${hh}:${mm}`;
+
+  // Format the wall-clock date/time in America/Chicago.
+  const f = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Chicago",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+  const p = Object.fromEntries(f.formatToParts(d).map(x => [x.type, x.value]));
+  const hourStr = p.hour === "24" ? "00" : p.hour; // en-CA sometimes emits "24:00"
+  return `${p.year}-${p.month}-${p.day}T${hourStr}:${p.minute}:${p.second}${tz}`;
+}
+
+/**
+ * POST /Calls — create a Call record linked to a Prospect.
+ *
+ * Linkage: Who_Id + What_Id both set to the prospect id, plus `$se_module:"Prospect"`.
+ * Verified in this Zoho org: existing calls return via /Prospect/{id}/Calls when
+ * linked this way. Returns the new record's id.
+ */
+export async function createProspectCall(
+  accessToken: string,
+  prospectId: string,
+  input: {
+    subject:      string;
+    description?: string;
+    callType?:    "Outbound" | "Inbound" | "Missed";
+    status?:      "Completed" | "Scheduled";
+    when?:        Date;
+  },
+): Promise<string> {
+  const when     = input.when ?? new Date();
+  const callType = input.callType ?? "Outbound";
+  const status   = input.status ?? "Completed";
+
+  const payload: Record<string, unknown> = {
+    Subject:         input.subject.slice(0, 255),
+    Call_Type:       callType,
+    Call_Start_Time: toChicagoIso(when),
+    // Who_Id must be a Contact/Lead — we don't have one here, so we link
+    // only through the "about" side: What_Id + $se_module = Prospect.
+    What_Id:         { id: prospectId },
+    $se_module:      "Prospect",
+  };
+  if (input.description) payload.Description = input.description;
+  // Zoho uses a separate status field for outbound vs inbound.
+  // Setting the status triggers a dependency: Call_Duration is required.
+  if (callType === "Outbound") {
+    payload.Outgoing_Call_Status = status;
+    payload.Call_Duration        = "0:00";
+  } else if (status === "Completed") {
+    payload.Call_Status   = "Completed";
+    payload.Call_Duration = "0:00";
+  }
+
+  try {
+    const { data: json } = await zohoApi.post<ZohoCreateResponse>(
+      accessToken,
+      "/Calls",
+      { data: [payload] },
+    );
+    const result = json.data?.[0];
+    if (result?.status !== "success" || !result?.details?.id) {
+      throw new Error(
+        `Zoho call create failed: [${result?.code ?? "UNKNOWN"}] ${result?.message ?? ""}`,
+      );
+    }
+    return result.details.id;
+  } catch (err) {
+    wrapZohoError("Zoho call create error", err);
+  }
+}
+
+/**
+ * POST /Events — create an Event (meeting) linked to a Prospect.
+ * Event_Title + Start_DateTime + End_DateTime required by Zoho.
+ * Returns the new record's id.
+ */
+export async function createProspectEvent(
+  accessToken: string,
+  prospectId: string,
+  input: {
+    title:             string;
+    description?:      string;
+    start?:            Date;
+    durationMinutes?:  number;
+  },
+): Promise<string> {
+  const start    = input.start ?? new Date();
+  const duration = input.durationMinutes ?? 30;
+  const end      = new Date(start.getTime() + duration * 60 * 1000);
+
+  const payload: Record<string, unknown> = {
+    Event_Title:    input.title.slice(0, 255),
+    Start_DateTime: toChicagoIso(start),
+    End_DateTime:   toChicagoIso(end),
+    What_Id:        { id: prospectId },
+    $se_module:     "Prospect",
+  };
+  if (input.description) payload.Description = input.description;
+
+  try {
+    const { data: json } = await zohoApi.post<ZohoCreateResponse>(
+      accessToken,
+      "/Events",
+      { data: [payload] },
+    );
+    const result = json.data?.[0];
+    if (result?.status !== "success" || !result?.details?.id) {
+      throw new Error(
+        `Zoho event create failed: [${result?.code ?? "UNKNOWN"}] ${result?.message ?? ""}`,
+      );
+    }
+    return result.details.id;
+  } catch (err) {
+    wrapZohoError("Zoho event create error", err);
+  }
 }
 
 // ─── Notes CRUD ───────────────────────────────────────────────────────────────
@@ -811,8 +985,22 @@ export async function getDashboardStatsFromZoho(
 function wrapZohoError(label: string, err: unknown): never {
   if (err instanceof AxiosError) {
     const status = err.response?.status;
-    const body = err.response?.data as { message?: string; code?: string } | undefined;
-    throw new Error(`${label} (${status ?? "network"}): ${body?.message ?? body?.code ?? err.message}`);
+    const body = err.response?.data as
+      | {
+          message?: string;
+          code?: string;
+          data?: Array<{ code?: string; message?: string; details?: unknown }>;
+        }
+      | undefined;
+    // Zoho v8 write errors are nested inside data[0] — unwrap it when present.
+    const inner    = body?.data?.[0];
+    const message  = inner?.message ?? body?.message;
+    const code     = inner?.code ?? body?.code;
+    const details  = inner?.details;
+    const detailsStr = details ? ` (${JSON.stringify(details)})` : "";
+    throw new Error(
+      `${label} (${status ?? "network"}): [${code ?? "UNKNOWN"}] ${message ?? err.message}${detailsStr}`,
+    );
   }
   throw err;
 }
@@ -878,25 +1066,118 @@ export async function getProspectEmails(
 }
 
 /**
- * GET /Prospect/{id}/Calls
- * Returns calls linked to this prospect.
+ * Calls linked to this Prospect.
+ *
+ * Zoho Calls use `Who_Id` (contact/lead the call is with) and `What_Id` +
+ * `$se_module` (the parent record the call is about — may be a custom module
+ * like Prospect). The related-list endpoint `/Prospect/{id}/Calls` only
+ * returns calls explicitly added via the Prospect UI; calls logged through
+ * Leads, Telephony integrations, or bulk imports link via `What_Id` and do
+ * NOT come back through the related list.
+ *
+ * We query both sources in parallel and merge by id so both flows surface.
  */
+const CALL_FIELDS =
+  "id,Subject,Call_Agenda,Call_Purpose,Call_Status,Call_Start_Time,Call_Duration,Call_Type,Description,Owner,Who_Id,What_Id,Modified_Time,Created_Time";
+
 export async function getProspectCalls(
   accessToken: string,
   id: string
 ): Promise<ZohoCall[]> {
-  try {
-    const { data: json } = await zohoApi.get<{ data?: ZohoCall[] }>(
-      accessToken,
-      `/Prospect/${id}/Calls`,
-      {
-        fields: "id,Subject,Call_Agenda,Call_Purpose,Call_Status,Call_Start_Time,Call_Duration,Call_Type,Description,Owner,Who_Id,Modified_Time,Created_Time",
-        per_page: 50,
+  const relatedList = async (): Promise<ZohoCall[]> => {
+    try {
+      const { data } = await zohoApi.get<{ data?: ZohoCall[] }>(
+        accessToken,
+        `/Prospect/${id}/Calls`,
+        { fields: CALL_FIELDS, per_page: 50 },
+      );
+      return data.data ?? [];
+    } catch (err) {
+      if (err instanceof AxiosError && err.response?.status === 204) return [];
+      return [];
+    }
+  };
+
+  const criteriaSearch = async (): Promise<ZohoCall[]> => {
+    try {
+      const { data } = await zohoApi.get<{ data?: ZohoCall[] }>(
+        accessToken,
+        `/Calls/search`,
+        {
+          criteria: `(What_Id:equals:${id})`,
+          fields: CALL_FIELDS,
+          per_page: 50,
+        },
+      );
+      return data.data ?? [];
+    } catch (err) {
+      if (err instanceof AxiosError) {
+        const status = err.response?.status;
+        // 204 = no records, 400 = criteria not supported for this module setup.
+        if (status === 204 || status === 400) return [];
       }
-    );
-    return json.data ?? [];
+      return [];
+    }
+  };
+
+  // Source 3: Zoho's audit timeline — the most reliable view of what's
+  // actually linked to this prospect. The related-list and criteria-search
+  // endpoints sometimes miss newly-created calls whose What_Id is the
+  // prospect, but the audit log always picks them up.
+  const timelineIds = async (): Promise<string[]> => {
+    try {
+      const tl = await getProspectTimeline(accessToken, id);
+      return tl
+        .filter(t => t.record?.module?.api_name === "Calls" && t.record?.id)
+        .map(t => t.record!.id as string);
+    } catch {
+      return [];
+    }
+  };
+
+  const fetchCallById = async (callId: string): Promise<ZohoCall | null> => {
+    try {
+      const { data } = await zohoApi.get<{ data?: ZohoCall[] }>(
+        accessToken,
+        `/Calls/${callId}`,
+        { fields: CALL_FIELDS },
+      );
+      return data.data?.[0] ?? null;
+    } catch {
+      return null;
+    }
+  };
+
+  try {
+    const [rel, crit, tlIds] = await Promise.all([
+      relatedList(),
+      criteriaSearch(),
+      timelineIds(),
+    ]);
+    const seen = new Set<string>();
+    const merged: ZohoCall[] = [];
+    for (const c of [...rel, ...crit]) {
+      if (c?.id && !seen.has(c.id)) {
+        seen.add(c.id);
+        merged.push(c);
+      }
+    }
+    // Fetch any call ids in the timeline that the other sources missed.
+    const missing = tlIds.filter(i => !seen.has(i));
+    const extras  = await Promise.all(missing.map(fetchCallById));
+    for (const c of extras) {
+      if (c?.id && !seen.has(c.id)) {
+        seen.add(c.id);
+        merged.push(c);
+      }
+    }
+    merged.sort((a, b) => {
+      const ta = a.Call_Start_Time ?? a.Created_Time ?? "";
+      const tb = b.Call_Start_Time ?? b.Created_Time ?? "";
+      return tb.localeCompare(ta);
+    });
+    return merged;
   } catch (err) {
-    if (err instanceof AxiosError && err.response?.status === 204) return [];
     wrapZohoError("Zoho Prospect calls error", err);
   }
 }

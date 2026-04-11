@@ -412,7 +412,23 @@ function formatTimelineFieldValue(value: string, dataType?: string): string {
 }
 
 function formatTimeOnly(iso: string): string {
-  return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+  return new Date(iso).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: "America/Chicago",
+  });
+}
+
+/** YYYY-MM-DD day key in America/Chicago — use for date grouping. */
+function toCtDateKey(d: Date): string {
+  // en-CA locale yields "YYYY-MM-DD" which is stable for keying.
+  return d.toLocaleDateString("en-CA", {
+    timeZone: "America/Chicago",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
 }
 
 // ─── 1. Stage Bar (interactive — click to change stage) ──────────────────────
@@ -682,7 +698,18 @@ function ProspectIdentityBar({
 
       <div className="mt-2 flex items-center gap-2 flex-wrap">
         <span className="inline-flex items-center gap-1.5 rounded-full bg-navy/8 px-3 py-1.5 text-xs font-medium text-navy">
-          <Phone size={12} />
+          {prospect.Phone ? (
+            <a
+              href={`tel:${prospect.Phone.replace(/[^+\d]/g, "")}`}
+              aria-label={`Call ${prospect.Phone}`}
+              className="text-navy hover:text-gold transition-colors shrink-0"
+              onClick={e => e.stopPropagation()}
+            >
+              <Phone size={12} />
+            </a>
+          ) : (
+            <Phone size={12} />
+          )}
           <InlineTextField
             value={prospect.Phone}
             label="phone"
@@ -691,7 +718,18 @@ function ProspectIdentityBar({
           />
         </span>
         <span className="inline-flex items-center gap-1.5 rounded-full bg-navy/8 px-3 py-1.5 text-xs font-medium text-navy">
-          <Mail size={12} />
+          {prospect.Email ? (
+            <a
+              href={`mailto:${prospect.Email}`}
+              aria-label={`Email ${prospect.Email}`}
+              className="text-navy hover:text-gold transition-colors shrink-0"
+              onClick={e => e.stopPropagation()}
+            >
+              <Mail size={12} />
+            </a>
+          ) : (
+            <Mail size={12} />
+          )}
           <InlineTextField
             value={prospect.Email}
             label="email"
@@ -888,20 +926,29 @@ function ActivityIcon({ kind }: { kind: ActivityKind }) {
 function groupByDate(activities: UnifiedActivity[]): { dateLabel: string; items: UnifiedActivity[] }[] {
   const map = new Map<string, UnifiedActivity[]>();
   for (const a of activities) {
-    const d = new Date(a.sortTime);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const key = toCtDateKey(new Date(a.sortTime));
     if (!map.has(key)) map.set(key, []);
     map.get(key)!.push(a);
   }
-  const today = new Date();
-  const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-  const yest = new Date(today); yest.setDate(yest.getDate() - 1);
-  const yesterdayKey = `${yest.getFullYear()}-${String(yest.getMonth() + 1).padStart(2, "0")}-${String(yest.getDate()).padStart(2, "0")}`;
+  const now = new Date();
+  const todayKey = toCtDateKey(now);
+  const yest = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const yesterdayKey = toCtDateKey(yest);
   return Array.from(map.entries())
     .sort(([a], [b]) => b.localeCompare(a))
     .map(([key, items]) => ({
-      dateLabel: key === todayKey ? "Today" : key === yesterdayKey ? "Yesterday"
-        : new Date(key + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" }),
+      dateLabel:
+        key === todayKey
+          ? "Today"
+          : key === yesterdayKey
+            ? "Yesterday"
+            : new Date(key + "T12:00:00Z").toLocaleDateString("en-US", {
+                weekday: "long",
+                month: "long",
+                day: "numeric",
+                year: "numeric",
+                timeZone: "America/Chicago",
+              }),
       items,
     }));
 }
@@ -1790,7 +1837,7 @@ export default function ProspectDetailPage() {
       if (detailRes.status === 401 && !isRetry) {
         const ok = (await fetch("/api/auth/zoho/refresh", { method: "POST", credentials: "same-origin" })).ok;
         if (ok) return fetchAll(true);
-        router.replace("/login?error=Session+expired.");
+        router.replace(`/login?next=/prospect/${id}`);
         return;
       }
       if (!detailRes.ok) {

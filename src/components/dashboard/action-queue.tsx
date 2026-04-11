@@ -70,7 +70,7 @@ export function ActionQueue({ items }: ActionQueueProps) {
               {/* Desktop: single row */}
               <div className="hidden md:flex items-center gap-4">
                 <span className="w-6 text-sm font-medium text-muted-foreground tabular-nums text-right shrink-0">
-                  {index + 2}.
+                  {index + 1}.
                 </span>
                 <span className="font-medium text-navy shrink-0 min-w-[140px]">
                   {item.person.fullName}
@@ -93,7 +93,7 @@ export function ActionQueue({ items }: ActionQueueProps) {
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0">
                     <span className="text-xs font-medium text-muted-foreground tabular-nums shrink-0">
-                      {index + 2}.
+                      {index + 1}.
                     </span>
                     <span className="font-medium text-navy text-sm truncate">
                       {item.person.fullName}

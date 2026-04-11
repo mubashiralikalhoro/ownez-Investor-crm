@@ -50,7 +50,8 @@ export async function GET(_request: NextRequest) {
   }
 
   try {
-    const prospects = await getAllProspects(session.accessToken);
+    const result    = await getAllProspects(session.accessToken);
+    const prospects = result.data;
     const stats     = computeStats(prospects);
 
     return NextResponse.json({ prospects, stats });

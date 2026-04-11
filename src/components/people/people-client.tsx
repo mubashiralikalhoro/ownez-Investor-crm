@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { AlertCircle, RefreshCw } from "lucide-react";
 import { PeopleSearch } from "@/components/people/people-search";
 import { PeopleSkeleton } from "@/components/people/people-skeleton";
@@ -89,6 +90,7 @@ function toPersonWithComputed(p: ZohoProspect, today: string): PersonWithCompute
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function PeopleClient() {
+  const router = useRouter();
   const [people, setPeople] = useState<PersonWithComputed[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -103,8 +105,7 @@ export function PeopleClient() {
       if (res.status === 401 && !isRetry) {
         const ok = await (await fetch("/api/auth/zoho/refresh", { method: "POST", credentials: "same-origin" })).ok;
         if (ok) { fetchPeople(true); return; }
-        setError("Session expired. Please log in again.");
-        setLoading(false);
+        router.replace("/login?next=/people");
         return;
       }
 
@@ -121,7 +122,7 @@ export function PeopleClient() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     fetchPeople();

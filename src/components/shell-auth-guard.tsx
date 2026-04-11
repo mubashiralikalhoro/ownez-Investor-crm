@@ -23,7 +23,9 @@ export function ShellAuthGuard({ children }: { children: React.ReactNode }) {
           await fetch("/api/auth/zoho/refresh", { method: "POST", credentials: "same-origin" })
         ).ok;
 
-        if (!refreshed) {
+        if (refreshed) {
+          router.refresh();
+        } else {
           const next = pathname && pathname !== "/" ? pathname : "/";
           router.replace(`/login?next=${encodeURIComponent(next)}`);
         }

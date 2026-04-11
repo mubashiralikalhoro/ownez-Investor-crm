@@ -176,6 +176,7 @@ export type ZohoCall = {
   Owner: { name: string; id: string; email: string } | null;
   Created_By: { name: string; id: string; email?: string } | null;
   Who_Id: { name: string; id: string } | null;
+  What_Id: { name: string; id: string } | null;
   Modified_Time: string | null;
   Created_Time: string | null;
 };

@@ -71,7 +71,7 @@ export function ProspectsPipeline() {
         if (res.status === 401 && !isRetry) {
           const refreshed = await tryRefresh();
           if (refreshed) return fetchProspects(targetPage, true);
-          router.replace("/login?error=Session+expired.+Please+log+in+again.");
+          router.replace("/login?next=/pipeline");
           return;
         }
 
@@ -100,7 +100,9 @@ export function ProspectsPipeline() {
 
         if (isFirstUnfilteredLoad && rows.length > 0) {
           const stages = [...new Set(rows.map((p) => p.Pipeline_Stage).filter(Boolean))].sort() as string[];
-          const sources = [...new Set(rows.map((p) => p.Lead_Source).filter(Boolean))].sort() as string[];
+          const sources = ([...new Set(rows.map((p) => p.Lead_Source).filter(Boolean))] as string[])
+            .filter((s) => !/^test\b/i.test(s))
+            .sort();
           const ownersMap = new Map(rows.map((p) => [p.Owner.id, p.Owner.name]));
           const owners = [...ownersMap.entries()]
             .map(([id, name]) => ({ id, name }))

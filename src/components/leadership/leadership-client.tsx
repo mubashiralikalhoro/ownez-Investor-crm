@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, RefreshCw } from "lucide-react";
 import { StatColumn } from "./stat-column";
 import { PipelineFunnel } from "./pipeline-funnel";
 import { SourceROITable } from "./source-roi-table";
@@ -16,6 +16,21 @@ import type {
   FunnelStage,
   SourceROIRow,
 } from "@/lib/types";
+
+/** Human-friendly age from an epoch-ms timestamp. Ticks by the second. */
+function formatAge(cachedAt: number | null, nowMs: number): string {
+  if (!cachedAt) return "—";
+  const secs = Math.max(0, Math.floor((nowMs - cachedAt) / 1000));
+  if (secs < 60) return `${secs}s ago`;
+  const mins = Math.floor(secs / 60);
+  const remSec = secs % 60;
+  if (mins < 60) {
+    return remSec > 0 ? `${mins}m ${remSec}s ago` : `${mins}m ago`;
+  }
+  const hrs = Math.floor(mins / 60);
+  const remMin = mins % 60;
+  return remMin > 0 ? `${hrs}h ${remMin}m ago` : `${hrs}h ago`;
+}
 
 // ─── Computations from PersonWithComputed[] ───────────────────────────────────
 
@@ -33,14 +48,20 @@ function computeStats(people: PersonWithComputed[]): LeadershipStats {
 
 function computeFunnel(people: PersonWithComputed[]): FunnelStage[] {
   return PIPELINE_STAGES
-    .map(s => ({
-      stage:      s.key,
-      label:      s.label,
-      count:      people.filter(p => p.pipelineStage === s.key).length,
-      totalValue: people
-        .filter(p => p.pipelineStage === s.key)
-        .reduce((sum, p) => sum + (p.initialInvestmentTarget ?? 0), 0),
-    }))
+    .map(s => {
+      const inStage = people.filter(p => p.pipelineStage === s.key);
+      // Before funding: sum Initial Investment Target (what they plan to invest).
+      // After funding:  sum Committed Amount (what actually came through).
+      const totalValue = s.key === "funded"
+        ? inStage.reduce((sum, p) => sum + (p.committedAmount ?? 0), 0)
+        : inStage.reduce((sum, p) => sum + (p.initialInvestmentTarget ?? 0), 0);
+      return {
+        stage: s.key,
+        label: s.label,
+        count: inStage.length,
+        totalValue,
+      };
+    })
     .filter(s => s.count > 0);
 }
 
@@ -106,21 +127,26 @@ interface LeadershipClientProps {
 
 export function LeadershipClient({ isPartialAccess }: LeadershipClientProps) {
   const router = useRouter();
-  const [people, setPeople]   = useState<PersonWithComputed[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState<string | null>(null);
+  const [people, setPeople]       = useState<PersonWithComputed[]>([]);
+  const [loading, setLoading]     = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError]         = useState<string | null>(null);
+  const [cachedAt, setCachedAt]   = useState<number | null>(null);
+  const [nowMs, setNowMs]         = useState<number>(() => Date.now());
 
-  const fetchData = useCallback(async (isRetry = false) => {
-    setLoading(true);
+  const fetchData = useCallback(async (isRetry = false, force = false) => {
+    if (force) setRefreshing(true);
+    else setLoading(true);
     setError(null);
 
     try {
-      const res = await fetch("/api/leadership/data", { credentials: "same-origin" });
+      const url = force ? "/api/leadership/data?refresh=1" : "/api/leadership/data";
+      const res = await fetch(url, { credentials: "same-origin" });
 
       if (res.status === 401 && !isRetry) {
         const ok = await tryRefresh();
-        if (ok) { fetchData(true); return; }
-        router.replace("/login?error=Session+expired.");
+        if (ok) { fetchData(true, force); return; }
+        router.replace("/login?next=/leadership");
         return;
       }
 
@@ -130,17 +156,26 @@ export function LeadershipClient({ isPartialAccess }: LeadershipClientProps) {
         return;
       }
 
-      const json = await res.json() as { prospects: ZohoProspect[] };
+      const json = await res.json() as { prospects: ZohoProspect[]; cachedAt?: number };
       const today = todayISO();
       setPeople((json.prospects ?? []).map(p => toPersonWithComputed(p, today)));
+      setCachedAt(json.cachedAt ?? Date.now());
     } catch {
       setError("Network error — could not load leadership data.");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, [router]);
 
   useEffect(() => { void fetchData(); }, [fetchData]);
+
+  // Tick the "cache age" indicator once per second.
+  useEffect(() => {
+    if (!cachedAt) return;
+    const id = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [cachedAt]);
 
   if (loading) {
     return (
@@ -184,9 +219,26 @@ export function LeadershipClient({ isPartialAccess }: LeadershipClientProps) {
 
   return (
     <div className="p-4 md:p-8">
-      <div className="mb-6">
-        <h1 className="text-lg font-semibold text-navy">Leadership</h1>
-        <p className="text-sm text-muted-foreground">Fund performance &amp; pipeline overview</p>
+      <div className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-lg font-semibold text-navy">Leadership</h1>
+          <p className="text-sm text-muted-foreground">Fund performance &amp; pipeline overview</p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="text-xs text-muted-foreground tabular-nums">
+            Last cache: <span className="font-medium text-navy">{formatAge(cachedAt, nowMs)}</span>
+          </span>
+          <button
+            type="button"
+            onClick={() => fetchData(false, true)}
+            disabled={refreshing}
+            className="inline-flex items-center gap-1.5 rounded-full border border-gold/40 bg-gold/10 px-3 py-1.5 text-xs font-medium text-gold hover:bg-gold/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            title="Force-refresh from Zoho and update Redis"
+          >
+            <RefreshCw size={12} className={refreshing ? "animate-spin" : ""} />
+            {refreshing ? "Refreshing…" : "Refresh"}
+          </button>
+        </div>
       </div>
 
       {/* Zone 1: Stats row at top */}

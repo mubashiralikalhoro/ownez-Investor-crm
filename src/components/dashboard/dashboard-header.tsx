@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { ClipboardList, Search, Check } from "lucide-react";
+import { ClipboardList, Search, Check, AlertCircle } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -15,13 +15,19 @@ import {
 } from "@/components/ui/sheet";
 import { detectActivityType, detectOutcome, hasOutcome } from "@/lib/smart-detection";
 import { ACTIVITY_TYPES, NEXT_ACTION_TYPES, STAGE_LABELS } from "@/lib/constants";
-import { getTodayCT, formatRelativeDate, formatCurrency, formatDate, formatTime } from "@/lib/format";
+import { formatRelativeDate, formatCurrency, formatDate, formatTime } from "@/lib/format";
 import { DateQuickPick } from "@/components/ui/date-quick-pick";
 import { CreateProspectSheet } from "./create-prospect-sheet";
-import { demoData } from "@/data/store";
-import type { PersonWithComputed, Activity, PipelineStage, NextActionType } from "@/lib/types";
-
-const DEMO_USER = "u-chad";
+import {
+  logActivity,
+  updateNextAction,
+  setProspectStage,
+  STAGE_ENUM_TO_ZOHO,
+} from "@/lib/activity-dispatch";
+import { PROSPECT_PROGRESSION_STAGES, PROSPECT_SPECIAL_STAGES } from "@/lib/prospect-config";
+import { mapTimelineToActivities } from "@/lib/timeline-mapping";
+import type { ZohoTimelineEvent } from "@/types";
+import type { PersonWithComputed, Activity } from "@/lib/types";
 
 interface DashboardHeaderProps {
   prospects: PersonWithComputed[];
@@ -48,6 +54,7 @@ function LogActivitySheet({ prospects }: { prospects: PersonWithComputed[] }) {
   // Quick log state
   const [text, setText] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Timeline state
   const [recentActivities, setRecentActivities] = useState<Activity[]>([]);
@@ -59,21 +66,43 @@ function LogActivitySheet({ prospects }: { prospects: PersonWithComputed[] }) {
   const [promptActionType, setPromptActionType] = useState<string>("follow_up");
   const [promptDetail, setPromptDetail] = useState("");
   const [promptDate, setPromptDate] = useState("");
+  // Target stage the user wants to move the prospect to from the What's next?
+  // prompt. Defaults to the prospect's current stage (= no change).
+  // Stored as a Zoho picklist label so we can PUT it directly.
+  const [targetStage, setTargetStage] = useState<string>("");
 
   const detectedType = text ? detectActivityType(text) : "note";
   const detectedOutcome = text ? detectOutcome(text) : "connected";
   const typeConfig = ACTIVITY_TYPES.find((t) => t.key === detectedType);
 
-  // Fetch activities when a person is selected
+  // Fetch recent activities from Zoho timeline when a person is selected.
+  // AbortController guards against stale responses when the user quickly
+  // switches between prospects.
   useEffect(() => {
     if (!selectedPerson) {
       setRecentActivities([]);
       return;
     }
-    demoData
-      .getActivities(selectedPerson.id)
-      .then((data) => setRecentActivities(data.slice(0, 5)))
-      .catch(() => setRecentActivities([]));
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const res = await fetch(`/api/prospects/${selectedPerson.id}/timeline`, {
+          credentials: "same-origin",
+          signal:      controller.signal,
+        });
+        if (!res.ok) {
+          setRecentActivities([]);
+          return;
+        }
+        const json = (await res.json()) as { data?: ZohoTimelineEvent[] };
+        setRecentActivities(
+          mapTimelineToActivities(json.data ?? [], selectedPerson.id, 5),
+        );
+      } catch (e) {
+        if ((e as Error).name !== "AbortError") setRecentActivities([]);
+      }
+    })();
+    return () => controller.abort();
   }, [selectedPerson]);
 
   const filtered = search
@@ -98,41 +127,40 @@ function LogActivitySheet({ prospects }: { prospects: PersonWithComputed[] }) {
     setShowSuccess(false);
     setConfirming(false);
     setRecentActivities([]);
+    setError(null);
+    setTargetStage("");
   }
+
+  // Current prospect stage expressed as a Zoho picklist label (for the
+  // stage dropdown's default value and for comparison against `targetStage`).
+  const currentZohoStage =
+    selectedPerson?.pipelineStage
+      ? STAGE_ENUM_TO_ZOHO[selectedPerson.pipelineStage]
+      : "";
 
   async function handleSubmit() {
     if (!text.trim() || !selectedPerson) return;
     setSubmitting(true);
+    setError(null);
 
     try {
-      const now = new Date();
-      const currentTime = now.toLocaleTimeString("en-US", {
-        hour12: false,
-        hour: "2-digit",
-        minute: "2-digit",
-        timeZone: "America/Chicago",
-      });
-
-      await demoData.createActivity(selectedPerson.id, {
-        activityType: detectedType,
-        source: "manual",
-        date: getTodayCT(),
-        time: currentTime,
-        outcome: hasOutcome(detectedType) ? detectedOutcome : "connected",
-        detail: text,
-        documentsAttached: [],
-        loggedById: DEMO_USER,
-        annotation: null,
-      });
+      await logActivity(selectedPerson.id, text, detectedType);
 
       setText("");
       // Set prompt state — detail starts empty, old value shown as gray placeholder
       setPromptActionType(selectedPerson.nextActionType ?? "follow_up");
       setPromptDetail("");
       setPromptDate(selectedPerson.nextActionDate ?? "");
+      // Default the stage dropdown to the prospect's current stage (= no change).
+      setTargetStage(
+        selectedPerson.pipelineStage
+          ? STAGE_ENUM_TO_ZOHO[selectedPerson.pipelineStage]
+          : "",
+      );
       setShowPrompt(true);
       setShowSuccess(false);
-      router.refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to log activity.");
     } finally {
       setSubmitting(false);
     }
@@ -141,51 +169,26 @@ function LogActivitySheet({ prospects }: { prospects: PersonWithComputed[] }) {
   async function handlePromptConfirm() {
     if (!selectedPerson) return;
     setConfirming(true);
-    await demoData.updatePerson(selectedPerson.id, {
-      nextActionType: promptActionType as NextActionType,
-      nextActionDetail: promptDetail.trim() || selectedPerson.nextActionDetail || "",
-      nextActionDate: promptDate,
-    });
-    setConfirming(false);
-    setShowPrompt(false);
-    setShowSuccess(true);
-  }
+    setError(null);
 
-  async function handleAdvanceStage() {
-    if (!selectedPerson) return;
-    const stages = ["prospect", "initial_contact", "discovery", "pitch", "active_engagement", "soft_commit", "commitment_processing", "kyc_docs", "funded"];
-    const currentIdx = stages.indexOf(selectedPerson.pipelineStage ?? "");
-    if (currentIdx >= 0 && currentIdx < stages.length - 1) {
-      const nextStage = stages[currentIdx + 1];
-      if (confirm(`Advance ${selectedPerson.fullName} to ${nextStage.replace(/_/g, " ")}?`)) {
-        const p = await demoData.getPerson(selectedPerson.id);
-        if (!p) return;
-        const oldStage = p.pipelineStage;
-        const today = getTodayCT();
-        const timeStr = new Date().toLocaleTimeString("en-US", {
-          hour12: false,
-          hour: "2-digit",
-          minute: "2-digit",
-          timeZone: "America/Chicago",
-        });
-        await demoData.updatePerson(selectedPerson.id, {
-          pipelineStage: nextStage as PipelineStage,
-          stageChangedDate: today,
-        });
-        const oldLabel = oldStage ? STAGE_LABELS[oldStage] : "None";
-        const newLabel = STAGE_LABELS[nextStage as PipelineStage] || nextStage;
-        await demoData.createActivity(selectedPerson.id, {
-          activityType: "stage_change",
-          source: "manual",
-          date: today,
-          time: timeStr,
-          outcome: "connected",
-          detail: `Stage updated from ${oldLabel} to ${newLabel}`,
-          documentsAttached: [],
-          loggedById: DEMO_USER,
-          annotation: null,
-        });
+    const detailText =
+      promptDetail.trim() ||
+      NEXT_ACTION_TYPES.find((t) => t.key === promptActionType)?.label ||
+      "";
+
+    try {
+      // Save next-action first.
+      await updateNextAction(selectedPerson.id, detailText, promptDate || null);
+      // Then, if the user picked a different stage, write it.
+      if (targetStage && targetStage !== currentZohoStage) {
+        await setProspectStage(selectedPerson.id, targetStage);
       }
+      setShowPrompt(false);
+      setShowSuccess(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save next action.");
+    } finally {
+      setConfirming(false);
     }
   }
 
@@ -194,7 +197,12 @@ function LogActivitySheet({ prospects }: { prospects: PersonWithComputed[] }) {
       open={open}
       onOpenChange={(nextOpen) => {
         setOpen(nextOpen);
-        if (!nextOpen) resetState();
+        if (!nextOpen) {
+          resetState();
+          // Single refresh when the sheet closes — refetches dashboard data
+          // so any activity/stage/next-action changes are reflected.
+          router.refresh();
+        }
       }}
     >
       <SheetTrigger
@@ -283,9 +291,14 @@ function LogActivitySheet({ prospects }: { prospects: PersonWithComputed[] }) {
               <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
                 {/* Stage + Amount row */}
                 <div className="flex items-center justify-between">
-                  <Badge variant="secondary" className="text-xs">
-                    {selectedPerson.pipelineStage ? STAGE_LABELS[selectedPerson.pipelineStage] : "—"}
-                  </Badge>
+                  <div className="flex items-center gap-1.5">
+                    <Badge variant="secondary" className="text-xs">
+                      {targetStage || (selectedPerson.pipelineStage ? STAGE_LABELS[selectedPerson.pipelineStage] : "—")}
+                    </Badge>
+                    {targetStage && targetStage !== currentZohoStage && (
+                      <span className="text-[10px] font-medium text-gold">moved</span>
+                    )}
+                  </div>
                   {selectedPerson.initialInvestmentTarget && (
                     <span className="text-sm font-semibold text-navy tabular-nums">
                       {formatCurrency(selectedPerson.initialInvestmentTarget)}
@@ -317,7 +330,7 @@ function LogActivitySheet({ prospects }: { prospects: PersonWithComputed[] }) {
                   Open profile
                 </a>
                 <button
-                  onClick={() => { resetState(); setOpen(false); window.location.reload(); }}
+                  onClick={() => { resetState(); router.refresh(); }}
                   className="flex-1 rounded-full bg-gold py-2 text-center text-sm font-semibold text-navy hover:bg-gold-hover transition-colors"
                 >
                   Done
@@ -374,20 +387,55 @@ function LogActivitySheet({ prospects }: { prospects: PersonWithComputed[] }) {
                 <DateQuickPick value={promptDate} onChange={setPromptDate} />
               </div>
 
-              {/* Actions */}
-              <div className="flex items-center justify-between pt-1">
-                <button
-                  onClick={handleAdvanceStage}
-                  className="rounded-full border border-gold/40 bg-gold/10 px-3 py-2 text-sm font-medium text-gold hover:bg-gold/20 transition-colors"
+              {/* Stage — defaults to current, pick another to advance/move */}
+              <div>
+                <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
+                  Stage
+                </p>
+                <select
+                  value={targetStage}
+                  onChange={(e) => setTargetStage(e.target.value)}
+                  className="w-full rounded-lg border bg-white px-3 py-2.5 text-sm font-medium text-navy"
                 >
-                  Advance stage &rarr;
-                </button>
+                  {PROSPECT_PROGRESSION_STAGES.map((s) => (
+                    <option key={s.value} value={s.value}>
+                      {s.label}
+                      {s.value === currentZohoStage ? " (current)" : ""}
+                    </option>
+                  ))}
+                  {PROSPECT_SPECIAL_STAGES.map((s) => (
+                    <option key={s.value} value={s.value}>
+                      {s.label}
+                      {s.value === currentZohoStage ? " (current)" : ""}
+                    </option>
+                  ))}
+                </select>
+                {targetStage && targetStage !== currentZohoStage && (
+                  <p className="mt-1 text-[11px] text-gold">
+                    Will move from <strong>{currentZohoStage || "—"}</strong> to <strong>{targetStage}</strong>
+                  </p>
+                )}
+              </div>
+
+              {error && (
+                <div className="flex items-start gap-2 rounded-lg border border-alert-red/25 bg-alert-red/5 px-3 py-2 text-xs text-alert-red">
+                  <AlertCircle size={14} className="shrink-0 mt-0.5" />
+                  <span>{error}</span>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex items-center justify-end pt-1">
                 <button
                   onClick={handlePromptConfirm}
                   disabled={confirming}
                   className="rounded-full bg-gold px-5 py-2.5 text-sm font-semibold text-navy hover:bg-gold-hover disabled:opacity-50 transition-colors"
                 >
-                  {confirming ? "Saving..." : "Confirm"}
+                  {confirming
+                    ? "Saving..."
+                    : targetStage && targetStage !== currentZohoStage
+                      ? "Save & move stage"
+                      : "Confirm"}
                 </button>
               </div>
             </div>
@@ -433,6 +481,12 @@ function LogActivitySheet({ prospects }: { prospects: PersonWithComputed[] }) {
                 disabled={submitting}
                 autoFocus
               />
+              {error && (
+                <div className="flex items-start gap-2 rounded-lg border border-alert-red/25 bg-alert-red/5 px-3 py-2 text-xs text-alert-red">
+                  <AlertCircle size={14} className="shrink-0 mt-0.5" />
+                  <span>{error}</span>
+                </div>
+              )}
               {text && (
                 <div className="flex justify-end">
                   <button
