@@ -756,15 +756,6 @@ export type CreateProspectResult = {
   name: string;
 };
 
-type ZohoCreateResponse = {
-  data?: Array<{
-    code: string;
-    status: string;
-    message: string;
-    details?: { id?: string };
-  }>;
-};
-
 /**
  * POST /Prospect — create a single new Prospect record in Zoho CRM.
  * Always sets Pipeline_Stage to "Prospect".
