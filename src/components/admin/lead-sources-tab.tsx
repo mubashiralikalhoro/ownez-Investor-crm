@@ -1,144 +1,205 @@
 "use client";
 
-import { useState, useRef } from "react";
-import { Switch } from "@/components/ui/switch";
-import { ChevronUp, ChevronDown, Plus } from "lucide-react";
-import { demoData } from "@/data/store";
-import type { LeadSourceConfig } from "@/lib/types";
+import { useState } from "react";
+import { AlertCircle, Check, Plus, RefreshCw } from "lucide-react";
+import type { LeadSourceRow } from "@/services/lead-sources";
 
 interface LeadSourcesTabProps {
-  sources: LeadSourceConfig[];
-  userRole?: string;
+  sources: LeadSourceRow[];
 }
 
-export function LeadSourcesTab({ sources: initialSources, userRole = "admin" }: LeadSourcesTabProps) {
-  const isAdmin = userRole === "admin";
-  const [sources, setSources] = useState(initialSources);
-  const [editingKey, setEditingKey] = useState<string | null>(null);
-  const [editLabel, setEditLabel] = useState("");
+export function LeadSourcesTab({ sources: initialSources }: LeadSourcesTabProps) {
+  const [sources, setSources]     = useState(initialSources);
   const [addingNew, setAddingNew] = useState(false);
-  const [newLabel, setNewLabel] = useState("");
-  const addInputRef = useRef<HTMLInputElement>(null);
-
-  async function saveLabelEdit(key: string) {
-    const trimmed = editLabel.trim();
-    if (!trimmed) { setEditingKey(null); return; }
-    await demoData.updateLeadSource(key, { label: trimmed });
-    setSources((prev) => prev.map((s) => s.key === key ? { ...s, label: trimmed } : s));
-    setEditingKey(null);
-  }
-
-  async function toggleActive(key: string, current: boolean) {
-    setSources((prev) => prev.map((s) => s.key === key ? { ...s, isActive: !current } : s));
-    await demoData.updateLeadSource(key, { isActive: !current });
-  }
-
-  async function move(index: number, direction: "up" | "down") {
-    const newSources = [...sources];
-    const swapWith = direction === "up" ? index - 1 : index + 1;
-    if (swapWith < 0 || swapWith >= newSources.length) return;
-    [newSources[index], newSources[swapWith]] = [newSources[swapWith], newSources[index]];
-    setSources(newSources);
-    await demoData.reorderLeadSources(newSources.map((s) => s.key));
-  }
+  const [newKey, setNewKey]       = useState("");
+  const [newLabel, setNewLabel]   = useState("");
+  const [saving, setSaving]       = useState(false);
+  const [syncingId, setSyncingId] = useState<number | null>(null);
+  const [syncing, setSyncing]     = useState(false);
+  const [error, setError]         = useState<string | null>(null);
+  const [warning, setWarning]     = useState<string | null>(null);
+  const [syncResult, setSyncResult] = useState<string | null>(null);
 
   async function addSource() {
-    const trimmed = newLabel.trim();
-    if (!trimmed) { setAddingNew(false); return; }
-    const created = await demoData.createLeadSource({ label: trimmed });
-    setSources((prev) => [...prev, created]);
-    setNewLabel("");
-    setAddingNew(false);
+    const key   = newKey.trim();
+    const label = newLabel.trim() || key;
+    if (!key) { setError("Source name is required."); return; }
+    setSaving(true);
+    setError(null);
+    setWarning(null);
+    try {
+      const res = await fetch("/api/admin/lead-sources", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ key, label }),
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        data?: LeadSourceRow;
+        zohoWarning?: string;
+        error?: string;
+      };
+      if (!res.ok || !body.data) throw new Error(body.error || `Create failed (${res.status})`);
+      setSources((prev) => [...prev, body.data!]);
+      if (body.zohoWarning) setWarning(body.zohoWarning);
+      setNewKey("");
+      setNewLabel("");
+      setAddingNew(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Create failed.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleSyncOne(id: number) {
+    setSyncingId(id);
+    setError(null);
+    setWarning(null);
+    try {
+      const res = await fetch(`/api/admin/lead-sources/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ syncToZoho: true }),
+      });
+      const body = (await res.json()) as {
+        data?: LeadSourceRow;
+        zohoWarning?: string;
+        error?: string;
+      };
+      if (!res.ok || body.error) {
+        setError(body.error || `Sync failed (${res.status})`);
+      } else if (body.zohoWarning) {
+        setWarning(body.zohoWarning);
+      } else if (body.data) {
+        setSources((prev) => prev.map((s) => (s.id === id ? { ...s, zohoSynced: body.data!.zohoSynced } : s)));
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Sync failed.");
+    } finally {
+      setSyncingId(null);
+    }
+  }
+
+  async function handleSyncAll() {
+    setSyncing(true);
+    setError(null);
+    setWarning(null);
+    setSyncResult(null);
+    try {
+      const res = await fetch("/api/admin/lead-sources/sync", {
+        method: "POST",
+        credentials: "same-origin",
+      });
+      const body = (await res.json()) as {
+        added?: string[];
+        removed?: string[];
+        error?: string;
+      };
+      if (!res.ok) throw new Error(body.error || `Sync failed (${res.status})`);
+
+      const parts: string[] = [];
+      if (body.added?.length)   parts.push(`Added: ${body.added.join(", ")}`);
+      if (body.removed?.length) parts.push(`Removed: ${body.removed.join(", ")}`);
+      setSyncResult(parts.length > 0 ? parts.join(". ") : "Everything is in sync.");
+
+      const listRes = await fetch("/api/admin/lead-sources", { credentials: "same-origin" });
+      if (listRes.ok) {
+        const listBody = (await listRes.json()) as { data?: LeadSourceRow[] };
+        if (listBody.data) setSources(listBody.data);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Sync failed.");
+    } finally {
+      setSyncing(false);
+    }
   }
 
   return (
-    <div>
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-muted-foreground">
+          {sources.length} source{sources.length !== 1 ? "s" : ""}
+        </p>
+        <button
+          onClick={handleSyncAll}
+          disabled={syncing}
+          className="inline-flex items-center gap-1.5 rounded-full border border-gold/40 bg-gold/10 px-3 py-1.5 text-xs font-medium text-gold hover:bg-gold/20 disabled:opacity-50 transition-colors"
+        >
+          <RefreshCw size={12} className={syncing ? "animate-spin" : ""} />
+          {syncing ? "Syncing…" : "Sync Zoho"}
+        </button>
+      </div>
+
+      {error && (
+        <div className="flex items-start gap-2 rounded-lg border border-alert-red/25 bg-alert-red/5 px-3 py-2 text-xs text-alert-red">
+          <AlertCircle size={14} className="shrink-0 mt-0.5" />
+          <span>{error}</span>
+        </div>
+      )}
+      {warning && (
+        <div className="flex items-start gap-2 rounded-lg border border-gold/40 bg-gold/5 px-3 py-2 text-xs text-gold">
+          <AlertCircle size={14} className="shrink-0 mt-0.5" />
+          <span>{warning}</span>
+        </div>
+      )}
+      {syncResult && (
+        <div className="flex items-start gap-2 rounded-lg border border-healthy-green/40 bg-healthy-green/5 px-3 py-2 text-xs text-healthy-green">
+          <Check size={14} className="shrink-0 mt-0.5" />
+          <span>{syncResult}</span>
+        </div>
+      )}
+
       <div className="rounded-lg border overflow-hidden">
-        {sources.map((source, i) => (
+        {sources.map((source) => (
           <div
-            key={source.key}
-            className={`flex items-center gap-3 px-4 py-3 border-b last:border-0 transition-colors ${
-              !source.isActive ? "opacity-50 bg-muted/20" : ""
-            }`}
+            key={source.id}
+            className="flex items-center gap-3 px-4 py-3 border-b last:border-0"
           >
-            {/* Reorder arrows */}
-            <div className="flex flex-col gap-0.5 shrink-0">
-              <button
-                onClick={() => move(i, "up")}
-                disabled={i === 0}
-                className="p-0.5 text-muted-foreground hover:text-navy disabled:opacity-20 transition-colors"
-              >
-                <ChevronUp size={12} />
-              </button>
-              <button
-                onClick={() => move(i, "down")}
-                disabled={i === sources.length - 1}
-                className="p-0.5 text-muted-foreground hover:text-navy disabled:opacity-20 transition-colors"
-              >
-                <ChevronDown size={12} />
-              </button>
-            </div>
-
-            {/* Label (editable) */}
             <div className="flex-1 min-w-0">
-              {editingKey === source.key ? (
-                <input
-                  autoFocus
-                  value={editLabel}
-                  onChange={(e) => setEditLabel(e.target.value)}
-                  onBlur={() => saveLabelEdit(source.key)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") saveLabelEdit(source.key);
-                    if (e.key === "Escape") setEditingKey(null);
-                  }}
-                  className="w-full text-sm border-b border-gold outline-none bg-transparent text-navy"
-                />
-              ) : (
-                <button
-                  onClick={() => { setEditingKey(source.key); setEditLabel(source.label); }}
-                  className="text-sm text-navy hover:text-gold transition-colors text-left w-full"
-                >
-                  {source.label}
-                </button>
-              )}
-              <div className="text-[10px] text-muted-foreground font-mono">{source.key}</div>
+              <span className="text-sm text-navy">{source.label}</span>
             </div>
 
-            {/* Active toggle — admin only */}
-            {isAdmin && (
-              <Switch
-                checked={source.isActive}
-                onCheckedChange={() => toggleActive(source.key, source.isActive)}
-              />
+            {!source.zohoSynced && (
+              <>
+                <span className="text-[10px] text-alert-red shrink-0">not synced</span>
+                <button
+                  onClick={() => handleSyncOne(source.id)}
+                  disabled={syncingId === source.id}
+                  className="inline-flex items-center gap-1 rounded-full border border-gold/40 bg-gold/10 px-2.5 py-1 text-[10px] font-medium text-gold hover:bg-gold/20 disabled:opacity-50 transition-colors shrink-0"
+                >
+                  <RefreshCw size={10} className={syncingId === source.id ? "animate-spin" : ""} />
+                  {syncingId === source.id ? "Syncing…" : "Sync"}
+                </button>
+              </>
             )}
           </div>
         ))}
 
-        {/* Add new row */}
         {addingNew ? (
-          <div className="flex items-center gap-3 px-4 py-3 bg-gold/5 border-t">
-            <div className="w-7 shrink-0" />
+          <div className="flex items-center gap-2 px-4 py-3 bg-gold/5 border-t">
             <input
-              ref={addInputRef}
               autoFocus
-              value={newLabel}
-              onChange={(e) => setNewLabel(e.target.value)}
-              placeholder="New source label…"
+              value={newKey}
+              onChange={(e) => { setNewKey(e.target.value); setNewLabel(e.target.value); }}
+              placeholder="New source name (e.g. Partner Intro)"
               onKeyDown={(e) => {
                 if (e.key === "Enter") addSource();
-                if (e.key === "Escape") { setAddingNew(false); setNewLabel(""); }
+                if (e.key === "Escape") { setAddingNew(false); setNewKey(""); setNewLabel(""); setError(null); }
               }}
               className="flex-1 text-sm border-b border-gold outline-none bg-transparent text-navy placeholder:text-muted-foreground"
             />
             <button
               onClick={addSource}
-              className="text-xs px-3 py-1 rounded-full bg-gold text-white font-medium hover:bg-gold/90 transition-colors"
+              disabled={saving}
+              className="text-xs px-3 py-1 rounded-full bg-gold text-navy font-medium hover:bg-gold-hover transition-colors disabled:opacity-50 shrink-0"
             >
-              Add
+              {saving ? "Adding…" : "Add"}
             </button>
             <button
-              onClick={() => { setAddingNew(false); setNewLabel(""); }}
-              className="text-xs text-muted-foreground hover:text-navy transition-colors"
+              onClick={() => { setAddingNew(false); setNewKey(""); setNewLabel(""); setError(null); }}
+              className="text-xs text-muted-foreground hover:text-navy transition-colors shrink-0"
             >
               Cancel
             </button>

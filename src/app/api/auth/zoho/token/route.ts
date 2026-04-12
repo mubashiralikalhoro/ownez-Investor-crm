@@ -6,6 +6,7 @@ import {
   sanitizeOAuthNextParam,
 } from "@/lib/zoho/oauth";
 import { resolveAppRoleFromZohoCrmUser } from "@/lib/app-role";
+import { getEffectiveUserState } from "@/services/app-users";
 import {
   ZOHO_ACCESS_COOKIE,
   ZOHO_REFRESH_COOKIE,
@@ -70,8 +71,8 @@ export async function POST(request: Request) {
     userFetchWarning = e instanceof Error ? e.message : "Failed to load Zoho current user.";
   }
 
-  const role = resolveAppRoleFromZohoCrmUser(user);
-  if (role === null) {
+  const envRole = resolveAppRoleFromZohoCrmUser(user);
+  if (envRole === null) {
     return NextResponse.json(
       {
         error:             "role_not_allowed",
@@ -81,21 +82,40 @@ export async function POST(request: Request) {
     );
   }
 
+  // Merge with any admin-set per-user override stored in Prisma.
+  // `null` means the admin has explicitly deactivated this user.
+  const sub = user?.id ?? `zoho-${crypto.randomUUID()}`;
+  const effective = await getEffectiveUserState(sub, envRole);
+  if (effective === null) {
+    return NextResponse.json(
+      {
+        error:             "access_revoked",
+        error_description: "Your access to this app has been revoked by an administrator.",
+      },
+      { status: 403 }
+    );
+  }
+
   const email    = user?.email ?? null;
   const fullName = user?.full_name?.trim() || email || "User";
-  const sub      = user?.id ?? `zoho-${crypto.randomUUID()}`;
 
   const appUser = {
     id:                sub,
     email,
     full_name:         fullName,
-    role,
+    role:              effective.role,
     zoho_role_id:      user?.role?.id    ?? null,
     zoho_role_name:    user?.role?.name  ?? null,
     zoho_profile_name: user?.profile?.name ?? null,
   };
 
-  const storedUser = JSON.stringify({ id: sub, email, name: fullName, role });
+  const storedUser = JSON.stringify({
+    id:          sub,
+    email,
+    name:        fullName,
+    role:        effective.role,
+    permissions: effective.permissions,
+  });
   const accessMaxAge = tokens.expires_in ?? ACCESS_COOKIE_MAX_AGE;
 
   const res = NextResponse.json({

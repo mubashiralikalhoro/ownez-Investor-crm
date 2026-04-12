@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { getAllProspects } from "@/services/prospects";
+import { getAppSettings } from "@/services/app-settings";
 
 /**
  * GET /api/leadership/data
@@ -17,18 +18,22 @@ export async function GET(request: NextRequest) {
   if (!session) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
-  if (session.role !== "marketing" && session.role !== "admin") {
+  if (!session.permissions.canViewLeadership) {
     return NextResponse.json({ error: "Forbidden." }, { status: 403 });
   }
 
   const force = request.nextUrl.searchParams.get("refresh") === "1";
 
   try {
-    const result = await getAllProspects(session.accessToken, { force });
+    const [result, settings] = await Promise.all([
+      getAllProspects(session.accessToken, { force }),
+      getAppSettings(),
+    ]);
     return NextResponse.json({
-      prospects: result.data,
-      cachedAt:  result.cachedAt,
-      fromCache: result.fromCache,
+      prospects:  result.data,
+      cachedAt:   result.cachedAt,
+      fromCache:  result.fromCache,
+      fundTarget: settings.fundTarget,
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to load leadership data.";

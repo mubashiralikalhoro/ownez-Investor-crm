@@ -54,11 +54,10 @@ const VALID_PIPELINE_STAGES = new Set([
   "Soft Commit", "Commitment Processing", "KYC / Docs", "Funded", "Nurture", "Dead / Lost",
 ]);
 
-/** Valid Zoho CRM Lead_Source picklist labels. */
-const VALID_LEAD_SOURCES = new Set([
-  "Velocis Network", "CPA Referral", "Legacy Event", "LinkedIn", "Ken - DBJ List",
-  "Ken - Event Follow-up", "Tolleson WM", "M&A Attorney", "Cold Outreach", "Other",
-]);
+// Lead sources are now managed in the DB (src/services/lead-sources.ts) and
+// can be extended by admins. No hardcoded allowlist — the dropdown values
+// come from our own /api/lead-sources endpoint (trusted). Zoho simply
+// returns no results if the value doesn't match a picklist entry.
 
 /** Zoho CRM record IDs are numeric strings. */
 const ZOHO_ID_RE = /^\d+$/;
@@ -75,7 +74,7 @@ function buildCriteria(filters: ProspectFilters): string | undefined {
   if (filters.pipelineStage && VALID_PIPELINE_STAGES.has(filters.pipelineStage)) {
     parts.push(`(Pipeline_Stage:equals:${filters.pipelineStage})`);
   }
-  if (filters.leadSource && VALID_LEAD_SOURCES.has(filters.leadSource)) {
+  if (filters.leadSource) {
     parts.push(`(Lead_Source:equals:${filters.leadSource})`);
   }
   if (filters.ownerId && ZOHO_ID_RE.test(filters.ownerId)) {

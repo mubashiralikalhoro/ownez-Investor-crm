@@ -12,6 +12,7 @@ import { RecentActivity } from "@/components/dashboard/recent-activity";
 import type { ZohoProspect } from "@/types";
 import type { PersonWithComputed, DashboardStats } from "@/lib/types";
 import { toPersonWithComputed, todayISO } from "@/lib/zoho-map";
+import { getAppUserProfile } from "@/lib/auth-storage";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -232,8 +233,8 @@ export function DashboardClient() {
         {/* Zone 3: Action Queue */}
         <ActionQueue items={queueItems} />
 
-        {/* Zone 4: Recent Activity — lazy-loaded on first expand */}
-        <RecentActivity />
+        {/* Zone 4: Recent Activity — hidden for rep users (they can't access it) */}
+        {getAppUserProfile()?.role !== "rep" && <RecentActivity />}
 
         {/* Zone 5: Stats Footer */}
         <StatsFooter stats={stats} />

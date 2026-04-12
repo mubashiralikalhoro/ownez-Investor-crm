@@ -5,7 +5,12 @@ import { LeadershipClient } from "@/components/leadership/leadership-client";
 export default async function LeadershipPage() {
   const session = await getSession();
   if (!session) redirect("/login");
-  if (session.role !== "marketing" && session.role !== "admin") redirect("/");
+  if (!session.permissions.canViewLeadership) redirect("/");
 
-  return <LeadershipClient isPartialAccess={session.role === "marketing"} />;
+  // Partial access = user can view leadership but is not a full admin (they
+  // only see source attribution, not the full dashboard).
+  const isPartialAccess =
+    session.permissions.canViewLeadership && !session.permissions.canAccessAdmin;
+
+  return <LeadershipClient isPartialAccess={isPartialAccess} />;
 }

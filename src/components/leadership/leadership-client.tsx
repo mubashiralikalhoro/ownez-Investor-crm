@@ -34,12 +34,12 @@ function formatAge(cachedAt: number | null, nowMs: number): string {
 
 // ─── Computations from PersonWithComputed[] ───────────────────────────────────
 
-function computeStats(people: PersonWithComputed[]): LeadershipStats {
+function computeStats(people: PersonWithComputed[], fundTarget: number): LeadershipStats {
   const active = people.filter(p => p.pipelineStage && ACTIVE_PIPELINE_STAGES.includes(p.pipelineStage));
   const funded = people.filter(p => p.pipelineStage === "funded");
   return {
     aumRaised:      funded.reduce((s, p) => s + (p.committedAmount ?? 0), 0),
-    fundTarget:     0,
+    fundTarget,
     fundedYTDCount: funded.length,
     activeCount:    active.length,
     pipelineValue:  active.reduce((s, p) => s + (p.initialInvestmentTarget ?? 0), 0),
@@ -65,7 +65,10 @@ function computeFunnel(people: PersonWithComputed[]): FunnelStage[] {
     .filter(s => s.count > 0);
 }
 
-function computeSourceROI(people: PersonWithComputed[]): SourceROIRow[] {
+function computeSourceROI(
+  people: PersonWithComputed[],
+  labelMap: Record<string, string>,
+): SourceROIRow[] {
   const map = new Map<string, PersonWithComputed[]>();
 
   for (const p of people) {
@@ -79,7 +82,7 @@ function computeSourceROI(people: PersonWithComputed[]): SourceROIRow[] {
       const funded = prospects.filter(p => p.pipelineStage === "funded");
       return {
         source,
-        label:          LEAD_SOURCE_LABELS[source] ?? source,
+        label:          labelMap[source] ?? source,
         prospectCount:  prospects.length,
         fundedCount:    funded.length,
         aum:            funded.reduce((s, p) => s + (p.committedAmount ?? 0), 0),
@@ -128,6 +131,8 @@ interface LeadershipClientProps {
 export function LeadershipClient({ isPartialAccess }: LeadershipClientProps) {
   const router = useRouter();
   const [people, setPeople]       = useState<PersonWithComputed[]>([]);
+  const [fundTarget, setFundTarget] = useState<number>(0);
+  const [sourceLabelMap, setSourceLabelMap] = useState<Record<string, string>>({});
   const [loading, setLoading]     = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError]         = useState<string | null>(null);
@@ -156,10 +161,15 @@ export function LeadershipClient({ isPartialAccess }: LeadershipClientProps) {
         return;
       }
 
-      const json = await res.json() as { prospects: ZohoProspect[]; cachedAt?: number };
+      const json = await res.json() as {
+        prospects:  ZohoProspect[];
+        cachedAt?:  number;
+        fundTarget?: number;
+      };
       const today = todayISO();
       setPeople((json.prospects ?? []).map(p => toPersonWithComputed(p, today)));
       setCachedAt(json.cachedAt ?? Date.now());
+      setFundTarget(json.fundTarget ?? 0);
     } catch {
       setError("Network error — could not load leadership data.");
     } finally {
@@ -169,6 +179,26 @@ export function LeadershipClient({ isPartialAccess }: LeadershipClientProps) {
   }, [router]);
 
   useEffect(() => { void fetchData(); }, [fetchData]);
+
+  // Build a label map that covers both internal slugs (from LEAD_SOURCE_LABELS)
+  // and Zoho picklist values (from the DB). This way computeSourceROI resolves
+  // any key format to a human-readable display name.
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/lead-sources", { credentials: "same-origin" });
+        if (!res.ok) return;
+        const json = (await res.json()) as { data?: { key: string; label: string }[] };
+        const map: Record<string, string> = { ...LEAD_SOURCE_LABELS };
+        for (const s of json.data ?? []) {
+          map[s.key] = s.label;
+        }
+        setSourceLabelMap(map);
+      } catch {
+        setSourceLabelMap({ ...LEAD_SOURCE_LABELS });
+      }
+    })();
+  }, []);
 
   // Tick the "cache age" indicator once per second.
   useEffect(() => {
@@ -208,9 +238,9 @@ export function LeadershipClient({ isPartialAccess }: LeadershipClientProps) {
   }
 
   // ── Compute all derived data from the single prospects array ──────────────
-  const stats     = computeStats(people);
+  const stats     = computeStats(people, fundTarget);
   const funnel    = computeFunnel(people);
-  const sourceROI = computeSourceROI(people);
+  const sourceROI = computeSourceROI(people, sourceLabelMap);
   const redFlags  = computeRedFlags(people);
 
   if (isPartialAccess) {

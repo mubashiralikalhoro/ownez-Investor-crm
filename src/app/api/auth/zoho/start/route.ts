@@ -43,8 +43,11 @@ export async function GET(request: NextRequest) {
     ""
   );
 
-  // ZohoCRM.users.READ is sufficient to call GET /users?type=CurrentUser for role resolution.
-  const scope = "ZohoCRM.modules.ALL,ZohoCRM.users.READ";
+  // Scopes:
+  //   ZohoCRM.modules.ALL         — read/write prospect records, notes, calls, events
+  //   ZohoCRM.users.READ          — GET /users for role resolution + admin user list
+  //   ZohoCRM.settings.fields.ALL — read + update Lead_Source picklist (admin lead-source sync)
+  const scope = "ZohoCRM.modules.ALL,ZohoCRM.users.READ,ZohoCRM.settings.fields.ALL";
 
   const params = new URLSearchParams({
     scope,

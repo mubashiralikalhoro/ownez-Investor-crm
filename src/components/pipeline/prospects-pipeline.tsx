@@ -51,6 +51,32 @@ export function ProspectsPipeline() {
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [search]);
 
+  // ─── Load lead sources + owners on mount ────────────────────────────────────
+  const [dbSources, setDbSources] = useState<string[]>([]);
+  const [dbOwners, setDbOwners]   = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const [srcRes, ownRes] = await Promise.all([
+          fetch("/api/lead-sources", { credentials: "same-origin", signal: controller.signal }),
+          fetch("/api/users",        { credentials: "same-origin", signal: controller.signal }),
+        ]);
+        if (srcRes.ok) {
+          const json = (await srcRes.json()) as { data?: { key: string; active: boolean }[] };
+          setDbSources((json.data ?? []).filter((s) => s.active).map((s) => s.key));
+        }
+        if (ownRes.ok) {
+          const json = (await ownRes.json()) as { data?: { id: string; name: string }[] };
+          setDbOwners(json.data ?? []);
+        }
+      } catch {
+        /* ignore — fall back to deriving from rows */
+      }
+    })();
+    return () => controller.abort();
+  }, []);
+
   // ─── Fetch ─────────────────────────────────────────────────────────────────
   const fetchProspects = useCallback(
     async (targetPage: number, isRetry = false) => {
@@ -100,13 +126,16 @@ export function ProspectsPipeline() {
 
         if (isFirstUnfilteredLoad && rows.length > 0) {
           const stages = [...new Set(rows.map((p) => p.Pipeline_Stage).filter(Boolean))].sort() as string[];
-          const sources = ([...new Set(rows.map((p) => p.Lead_Source).filter(Boolean))] as string[])
-            .filter((s) => !/^test\b/i.test(s))
-            .sort();
-          const ownersMap = new Map(rows.map((p) => [p.Owner.id, p.Owner.name]));
-          const owners = [...ownersMap.entries()]
-            .map(([id, name]) => ({ id, name }))
-            .sort((a, b) => a.name.localeCompare(b.name));
+          const sources = dbSources.length > 0
+            ? dbSources
+            : ([...new Set(rows.map((p) => p.Lead_Source).filter(Boolean))] as string[])
+                .filter((s) => !/^test\b/i.test(s))
+                .sort();
+          const owners = dbOwners.length > 0
+            ? dbOwners
+            : [...new Map(rows.map((p) => [p.Owner.id, p.Owner.name])).entries()]
+                .map(([id, name]) => ({ id, name }))
+                .sort((a, b) => a.name.localeCompare(b.name));
           setFilterOptions({ stages, sources, owners });
         }
       } catch {
@@ -115,8 +144,19 @@ export function ProspectsPipeline() {
         setLoading(false);
       }
     },
-    [router, debouncedSearch, stageFilter, sourceFilter, ownerFilter]
+    [router, debouncedSearch, stageFilter, sourceFilter, ownerFilter, dbSources, dbOwners]
   );
+
+  // When the DB lists land (async after the first fetch), merge them into
+  // filter options without reloading all the rows.
+  useEffect(() => {
+    if (dbSources.length === 0 && dbOwners.length === 0) return;
+    setFilterOptions((prev) => ({
+      ...prev,
+      ...(dbSources.length > 0 ? { sources: dbSources } : {}),
+      ...(dbOwners.length > 0  ? { owners:  dbOwners }  : {}),
+    }));
+  }, [dbSources, dbOwners]);
 
   // Re-fetch whenever any filter/sort/page changes.
   useEffect(() => {
@@ -246,7 +286,7 @@ export function ProspectsPipeline() {
       </div>
 
       {/* Table */}
-      {loading && prospects.length === 0 ? (
+      {loading ? (
         <PipelineTableSkeleton />
       ) : (
         <PipelineTable prospects={prospects} />

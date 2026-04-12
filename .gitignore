@@ -35,3 +35,11 @@ test-results/
 
 .deploy.sh
 .env
+/src/generated/prisma
+
+# prisma / sqlite
+/dev.db
+/dev.db-journal
+prisma/dev.db
+prisma/dev.db-journal
+prisma/*.db-journal

@@ -107,6 +107,18 @@ export const zohoApi = {
     });
   },
 
+  patch<T = unknown>(
+    token: string,
+    url: string,
+    data?: unknown,
+    config?: AxiosRequestConfig
+  ) {
+    return _client.patch<T>(url, data, {
+      ...config,
+      headers: { Authorization: `Zoho-oauthtoken ${token}` },
+    });
+  },
+
   delete<T = unknown>(
     token: string,
     url: string,

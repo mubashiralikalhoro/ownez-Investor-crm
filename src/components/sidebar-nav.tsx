@@ -13,22 +13,46 @@ import {
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
 import { clearAuthTokens } from "@/lib/auth-storage";
-import type { UserRole } from "@/lib/types";
+import type { UserPermissions, UserRole } from "@/lib/types";
 
-const NAV_ITEMS = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard, roles: ["rep", "marketing", "admin"] as UserRole[] },
-  { href: "/pipeline", label: "Pipeline", icon: GitBranch, roles: ["rep", "marketing", "admin"] as UserRole[] },
-  { href: "/people", label: "People", icon: Users, roles: ["rep", "marketing", "admin"] as UserRole[] },
-  { href: "/leadership", label: "Leadership", icon: BarChart3, roles: ["marketing", "admin"] as UserRole[] },
-  { href: "/admin", label: "Admin", icon: Settings, roles: ["admin"] as UserRole[] },
+/**
+ * Each nav item declares an optional permission key from `UserPermissions`.
+ * `null` = visible to everyone. Otherwise the user's effective permissions
+ * (merged from role defaults + per-user override in session.permissions)
+ * must have that flag set to `true`.
+ */
+const NAV_ITEMS: {
+  href:     string;
+  label:    string;
+  icon:     React.ComponentType<{ size?: number; className?: string }>;
+  requires: keyof UserPermissions | null;
+}[] = [
+  { href: "/",            label: "Dashboard",  icon: LayoutDashboard, requires: null },
+  { href: "/pipeline",    label: "Pipeline",   icon: GitBranch,       requires: null },
+  { href: "/people",      label: "People",     icon: Users,           requires: null },
+  { href: "/leadership",  label: "Leadership", icon: BarChart3,       requires: "canViewLeadership" },
+  { href: "/admin",       label: "Admin",      icon: Settings,        requires: "canAccessAdmin" },
 ];
 
-export function SidebarNav({ role }: { role: UserRole }) {
+type Perms = Required<UserPermissions>;
+
+function hasAccess(
+  perms: Perms | undefined,
+  requires: keyof UserPermissions | null,
+): boolean {
+  if (requires === null) return true;
+  return !!perms?.[requires];
+}
+
+export function SidebarNav({ role, permissions }: { role: UserRole; permissions: Perms }) {
   const pathname = usePathname();
+  // role is accepted for backwards-compat with callers that still pass it;
+  // all gating is now done via `permissions`.
+  void role;
 
   return (
     <nav className="flex-1 space-y-0.5 px-3 py-4">
-      {NAV_ITEMS.filter((item) => item.roles.includes(role)).map((item) => {
+      {NAV_ITEMS.filter((item) => hasAccess(permissions, item.requires)).map((item) => {
         const Icon = item.icon;
         const isActive = item.href === "/"
           ? pathname === "/"
@@ -88,10 +112,11 @@ export function MobileNav({ role, fullName }: { role: UserRole; fullName: string
     router.refresh();
   }
 
+  // Mobile nav shows the 3 always-visible pages regardless of permissions.
   return (
     <>
       <nav className="fixed bottom-0 left-0 right-0 z-40 flex md:hidden border-t bg-navy safe-bottom">
-        {MOBILE_NAV_ITEMS.filter((item) => item.roles.includes(role)).map((item) => {
+        {MOBILE_NAV_ITEMS.map((item) => {
           const Icon = item.icon;
           const isActive = item.href === "/"
             ? pathname === "/"

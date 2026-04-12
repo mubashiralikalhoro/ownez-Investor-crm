@@ -150,11 +150,74 @@ export async function fetchZohoCurrentUser(
   const u = list?.[0];
   if (!u?.id) return null;
 
+  return toZohoCrmUser(u);
+}
+
+/** Organization user row — adds the `status` field which the org listing returns. */
+export type ZohoOrgUser = ZohoCrmUser & {
+  status?: string; // "active" | "inactive" | etc.
+};
+
+type ZohoOrgUserApiRow = ZohoCrmUserApiRow & {
+  status?: string;
+};
+
+/**
+ * GET /crm/v8/users?type=AllUsers
+ *
+ * Returns every user record in the Zoho CRM organization. Pagination
+ * (`page`, `per_page`) is followed until `info.more_records` is false so the
+ * caller always sees the full list.
+ */
+export async function fetchZohoOrgUsers(
+  accessToken: string,
+  apiDomain: string,
+): Promise<ZohoOrgUser[]> {
+  const base = apiDomain.replace(/\/$/, "");
+  const all: ZohoOrgUser[] = [];
+  let page = 1;
+  let more = true;
+
+  while (more) {
+    const url = `${base}/crm/v8/users?type=AllUsers&page=${page}&per_page=200`;
+    const res = await fetch(url, {
+      headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
+      cache:   "no-store",
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Zoho CRM org users failed (${res.status}): ${text.slice(0, 200)}`);
+    }
+
+    const json = (await res.json()) as {
+      users?: ZohoOrgUserApiRow[];
+      info?:  { more_records?: boolean };
+    };
+
+    for (const u of json.users ?? []) {
+      if (!u?.id) continue;
+      all.push({ ...toZohoCrmUser(u), status: u.status });
+    }
+
+    more = Boolean(json.info?.more_records);
+    page += 1;
+    // Safety net: never walk more than 50 pages (10k users).
+    if (page > 50) break;
+  }
+
+  return all;
+}
+
+function toZohoCrmUser(u: ZohoCrmUserApiRow): ZohoCrmUser {
   return {
     id: String(u.id),
     full_name: u.full_name,
     email: u.email,
-    role: u.role?.name || u.role?.id ? { id: u.role?.id, name: u.role?.name } : undefined,
+    role:
+      u.role?.name || u.role?.id
+        ? { id: u.role?.id, name: u.role?.name }
+        : undefined,
     profile:
       u.profile?.name || u.profile?.id
         ? { id: u.profile?.id, name: u.profile?.name }

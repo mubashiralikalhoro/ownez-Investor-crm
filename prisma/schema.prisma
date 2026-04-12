@@ -1,0 +1,65 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+//
+// Zoho CRM is the source of truth for prospects, calls, notes, events,
+// pipeline stages, and activity types. Models here are ADDITIVE ONLY —
+// they store app-local state that has no Zoho equivalent.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+/// Per-user permission override keyed by Zoho user id.
+///
+/// Rows exist only for users whose permissions differ from the role-based
+/// default template in src/lib/permissions.ts — or who've been explicitly
+/// deactivated by an admin. Default behavior (no override row) is computed
+/// on the fly from the Zoho role.
+///
+/// `role` mirrors the local UserRole ("rep" | "marketing" | "admin") and may
+/// diverge from the Zoho-role-derived default when an admin promotes a user.
+model UserPermission {
+  id                     Int      @id @default(autoincrement())
+  zohoUserId             String   @unique
+  role                   String
+  active                 Boolean  @default(true)
+  canViewLeadership      Boolean?
+  canAccessAdmin         Boolean?
+  canReassignProspects   Boolean?
+  canViewAllProspects    Boolean?
+  canMarkDead            Boolean?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+}
+
+/// Lead sources managed locally. Mirrored to Zoho's `Lead_Source` picklist
+/// on create via the Fields Metadata API.
+///
+/// `key`   = the exact Zoho picklist label (what we send when creating a
+///           prospect). MUST match an existing Zoho picklist value.
+/// `label` = display override for the UI (falls back to key when empty).
+/// `zohoSynced` = true once the value has been pushed into Zoho's picklist.
+model LeadSource {
+  id           Int      @id @default(autoincrement())
+  key          String   @unique
+  label        String
+  displayOrder Int      @default(0)
+  active       Boolean  @default(true)
+  zohoSynced   Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+/// Singleton app-wide settings. Always `id = 1` — enforced in the service
+/// layer via an upsert-on-read helper.
+model AppSettings {
+  id           Int      @id @default(1)
+  companyName  String   @default("OwnEZ Capital")
+  fundTarget   Int      @default(0)
+  updatedAt    DateTime @updatedAt
+}
