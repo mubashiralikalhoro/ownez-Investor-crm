@@ -23,6 +23,10 @@ export type ZohoProspect = {
   Committed_Amount: number | null;
   Growth_Target: number | null;
   Company_Entity: string | null;
+  /** Lookup → Prospect. If set, this prospect was referred BY that person. */
+  Referrer1: { id: string; name: string } | null;
+  /** Lookup → Prospect. Another Prospect-module person related to this one. */
+  Related_Contact: { id: string; name: string } | null;
 };
 
 /** Pagination info returned alongside every list response. */
@@ -74,6 +78,8 @@ export type ZohoProspectDetail = {
   Created_By: { name: string; id: string; email: string } | null;
   Modified_By: { name: string; id: string; email: string } | null;
   Funded_Investor: { name: string; id: string } | null;
+  Referrer1: { name: string; id: string } | null;
+  Related_Contact: { name: string; id: string } | null;
   Record_Status__s: string | null;
   Tag: string[];
   Currency: string | null;

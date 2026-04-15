@@ -43,9 +43,9 @@ function todayISO(): string {
 /**
  * Map a ZohoProspect to PersonWithComputed.
  *
- * Role assignment:
- *   "Funded" stage   → ["funded_investor"]   (so "Funded" filter tab works)
- *   All other stages → ["prospect"]           (so "Active" filter tab works)
+ * The base role comes from pipeline stage: "Funded" → funded_investor, else
+ * prospect. The caller layers additional roles on top of this via a reverse
+ * index built over the full list (referrer / related_contact).
  */
 function toPersonWithComputed(p: ZohoProspect, today: string): PersonWithComputed {
   const stage = ZOHO_TO_STAGE[p.Pipeline_Stage ?? ""] ?? null;
@@ -83,8 +83,40 @@ function toPersonWithComputed(p: ZohoProspect, today: string): PersonWithCompute
     isStale: p.Stale_Flag === true,
     isOverdue,
     activityCount: 0,
-    referrerName: null,
+    referrerName: p.Referrer1?.name ?? null,
   };
+}
+
+/**
+ * Walk the list once to find everyone who appears as a Referrer1 or
+ * Related_Contact on another prospect, then stack those roles onto the
+ * matching PersonWithComputed rows. Roles are additive — a funded investor
+ * who referred someone will end up with ["funded_investor", "referrer"].
+ */
+function enrichRolesFromReverseIndex(
+  raw: ZohoProspect[],
+  people: PersonWithComputed[],
+): PersonWithComputed[] {
+  const referrerIds = new Set<string>();
+  const relatedContactIds = new Set<string>();
+
+  for (const r of raw) {
+    if (r.Referrer1?.id)       referrerIds.add(r.Referrer1.id);
+    if (r.Related_Contact?.id) relatedContactIds.add(r.Related_Contact.id);
+  }
+
+  if (referrerIds.size === 0 && relatedContactIds.size === 0) return people;
+
+  return people.map((p) => {
+    const extra: PersonWithComputed["roles"] = [];
+    if (referrerIds.has(p.id) && !p.roles.includes("referrer")) {
+      extra.push("referrer");
+    }
+    if (relatedContactIds.has(p.id) && !p.roles.includes("related_contact")) {
+      extra.push("related_contact");
+    }
+    return extra.length === 0 ? p : { ...p, roles: [...p.roles, ...extra] };
+  });
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -116,7 +148,9 @@ export function PeopleClient() {
 
       const json = await res.json() as { data: ZohoProspect[] };
       const today = todayISO();
-      setPeople((json.data ?? []).map((p) => toPersonWithComputed(p, today)));
+      const raw = json.data ?? [];
+      const mapped = raw.map((p) => toPersonWithComputed(p, today));
+      setPeople(enrichRolesFromReverseIndex(raw, mapped));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load people.");
     } finally {

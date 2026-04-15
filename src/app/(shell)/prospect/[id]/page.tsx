@@ -337,6 +337,162 @@ function InlineLeadSourceField({
   );
 }
 
+// ─── Prospect Lookup Field (Referrer / Related Contact) ───────────────────────
+
+type ProspectLookupValue = { id: string; name: string } | null;
+
+type ProspectSearchResult = { id: string; Name: string; Pipeline_Stage: string | null };
+
+function InlineProspectLookupField({
+  value, excludeId, onSave,
+}: {
+  value: ProspectLookupValue;
+  /** Prospect id to hide from the results list (usually the current prospect). */
+  excludeId: string;
+  onSave: (val: { id: string; name: string } | null) => Promise<void>;
+}) {
+  const [editing,   setEditing]   = useState(false);
+  const [query,     setQuery]     = useState("");
+  const [results,   setResults]   = useState<ProspectSearchResult[]>([]);
+  const [loading,   setLoading]   = useState(false);
+  const [saving,    setSaving]    = useState(false);
+  const [err,       setErr]       = useState<string | null>(null);
+  const wrapRef = useRef<HTMLSpanElement>(null);
+
+  // Debounced search against /api/prospects. Empty query returns the latest
+  // prospects; any term >=2 chars forwards to Zoho's word search.
+  useEffect(() => {
+    if (!editing) return;
+    const controller = new AbortController();
+    setLoading(true);
+    const timer = setTimeout(async () => {
+      try {
+        const qs = new URLSearchParams({ page: "1", page_size: "20" });
+        const trimmed = query.trim();
+        if (trimmed.length >= 2) qs.set("search", trimmed);
+        const res = await fetch(`/api/prospects?${qs}`, {
+          credentials: "same-origin", signal: controller.signal,
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json() as { data?: ProspectSearchResult[] };
+        setResults((json.data ?? []).filter(r => r.id !== excludeId));
+      } catch (e) {
+        if ((e as { name?: string }).name === "AbortError") return;
+        setErr(e instanceof Error ? e.message : "Search failed");
+      } finally {
+        setLoading(false);
+      }
+    }, 250);
+    return () => { controller.abort(); clearTimeout(timer); };
+  }, [editing, query, excludeId]);
+
+  // Close on outside click / Escape
+  useEffect(() => {
+    if (!editing) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setEditing(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setEditing(false); };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [editing]);
+
+  const commit = async (next: { id: string; name: string } | null) => {
+    if (saving) return;
+    setSaving(true); setErr(null);
+    try { await onSave(next); setEditing(false); setQuery(""); }
+    catch (e) { setErr(e instanceof Error ? e.message : "Save failed"); }
+    finally { setSaving(false); }
+  };
+
+  if (!editing) {
+    // Name link and edit icon are separate click targets so navigation
+    // vs. edit never conflict. The `from=prospect:{id}` query param lets the
+    // target prospect's back-link return to this prospect.
+    return (
+      <span className="inline-flex items-center gap-2 min-w-0">
+        {value
+          ? (
+            <Link
+              href={`/prospect/${value.id}?from=prospect:${excludeId}`}
+              className="text-xs font-medium text-navy hover:text-gold hover:underline transition-colors truncate"
+            >
+              {value.name}
+            </Link>
+          )
+          : (
+            <span
+              onClick={() => setEditing(true)}
+              className="text-xs text-muted-foreground/40 italic cursor-pointer hover:text-muted-foreground"
+            >
+              Not set
+            </span>
+          )}
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          aria-label="Edit"
+          className="shrink-0 p-0.5 rounded text-muted-foreground/60 hover:text-gold hover:bg-gold/10 transition-colors"
+        >
+          <Pencil size={11} />
+        </button>
+      </span>
+    );
+  }
+
+  return (
+    <span ref={wrapRef} className="relative inline-block w-full max-w-xs">
+      <input
+        type="text"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Search prospects…"
+        autoFocus
+        className="w-full border border-gold/50 rounded-md px-2 py-1 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-gold/40 shadow-sm"
+      />
+      <div className="absolute left-0 right-0 top-full mt-1 z-30 max-h-64 overflow-y-auto rounded-md border bg-white shadow-lg">
+        {value && (
+          <button
+            onClick={() => commit(null)}
+            disabled={saving}
+            className="w-full text-left px-2 py-1.5 text-[11px] text-alert-red hover:bg-alert-red/10 border-b disabled:opacity-50"
+          >
+            Clear current ({value.name})
+          </button>
+        )}
+        {loading && (
+          <div className="flex items-center gap-2 px-2 py-2 text-[11px] text-muted-foreground">
+            <Loader2 size={11} className="animate-spin" /> Searching…
+          </div>
+        )}
+        {!loading && results.length === 0 && (
+          <p className="px-2 py-2 text-[11px] text-muted-foreground">No prospects found.</p>
+        )}
+        {!loading && results.map((r) => (
+          <button
+            key={r.id}
+            onClick={() => commit({ id: r.id, name: r.Name })}
+            disabled={saving}
+            className="w-full text-left px-2 py-1.5 text-xs hover:bg-gold/10 border-b last:border-0 disabled:opacity-50"
+          >
+            <span className="font-medium text-navy">{r.Name}</span>
+            {r.Pipeline_Stage && (
+              <span className="ml-2 text-[10px] text-muted-foreground">{r.Pipeline_Stage}</span>
+            )}
+          </button>
+        ))}
+        {err && (
+          <p className="px-2 py-1.5 text-[11px] text-alert-red">{err}</p>
+        )}
+      </div>
+    </span>
+  );
+}
+
 // ─── Unified Activity ─────────────────────────────────────────────────────────
 
 type ActivityKind = "call" | "email" | "meeting" | "note" | "update" | "stage_change" | "automation";
@@ -871,50 +1027,74 @@ function ProspectProfileCard({
           })}
         </div>
 
-        {/* Detail rows */}
-        {detailFields.map(field => {
-          if (field.showForStages && currentStage && !field.showForStages.includes(currentStage)) return null;
-          const raw = (prospect as Record<string, unknown>)[field.api_name];
+        {/* Detail rows — existing fields on the left, Referrer / Related
+            Contact on the right, stacked into a two-column grid. */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2">
+          <div className="space-y-2 min-w-0">
+            {detailFields.map(field => {
+              if (field.showForStages && currentStage && !field.showForStages.includes(currentStage)) return null;
+              const raw = (prospect as Record<string, unknown>)[field.api_name];
 
-          // Lead_Source: inline select
-          if (field.api_name === "Lead_Source") {
-            return (
-              <div key={field.api_name} className="flex items-center gap-2">
-                <span className="text-[10px] text-muted-foreground w-28 shrink-0 tracking-wide">{field.label}</span>
-                <InlineLeadSourceField
-                  value={raw as string | null}
-                  onSave={val => onUpdate({ Lead_Source: val })}
-                />
-              </div>
-            );
-          }
+              // Lead_Source: inline select
+              if (field.api_name === "Lead_Source") {
+                return (
+                  <div key={field.api_name} className="flex items-center gap-2">
+                    <span className="text-[10px] text-muted-foreground w-28 shrink-0 tracking-wide">{field.label}</span>
+                    <InlineLeadSourceField
+                      value={raw as string | null}
+                      onSave={val => onUpdate({ Lead_Source: val })}
+                    />
+                  </div>
+                );
+              }
 
-          // Company entity: already editable in identity bar
-          if (field.api_name === "Company_Entity") return null;
+              // Company entity: already editable in identity bar
+              if (field.api_name === "Company_Entity") return null;
 
-          // Lost/Dead reason: inline text
-          if (field.api_name === "Lost_Dead_Reason") {
-            return (
-              <div key={field.api_name} className="flex items-center gap-2">
-                <span className="text-[10px] text-muted-foreground w-28 shrink-0 tracking-wide">{field.label}</span>
-                <InlineTextField
-                  value={raw as string | null}
-                  label="reason"
-                  onSave={val => onUpdate({ Lost_Dead_Reason: val })}
-                />
-              </div>
-            );
-          }
+              // Lost/Dead reason: inline text
+              if (field.api_name === "Lost_Dead_Reason") {
+                return (
+                  <div key={field.api_name} className="flex items-center gap-2">
+                    <span className="text-[10px] text-muted-foreground w-28 shrink-0 tracking-wide">{field.label}</span>
+                    <InlineTextField
+                      value={raw as string | null}
+                      label="reason"
+                      onSave={val => onUpdate({ Lost_Dead_Reason: val })}
+                    />
+                  </div>
+                );
+              }
 
-          const formatted = formatFieldValue(raw, field.type);
-          if (!formatted) return null;
-          return (
-            <div key={field.api_name} className="flex items-center gap-2">
-              <span className="text-[10px] text-muted-foreground w-28 shrink-0 tracking-wide">{field.label}</span>
-              <span className="text-xs font-medium text-navy flex-1">{formatted}</span>
+              const formatted = formatFieldValue(raw, field.type);
+              if (!formatted) return null;
+              return (
+                <div key={field.api_name} className="flex items-center gap-2">
+                  <span className="text-[10px] text-muted-foreground w-28 shrink-0 tracking-wide">{field.label}</span>
+                  <span className="text-xs font-medium text-navy flex-1 truncate">{formatted}</span>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="space-y-2 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] text-muted-foreground w-28 shrink-0 tracking-wide">Referrer</span>
+              <InlineProspectLookupField
+                value={prospect.Referrer1}
+                excludeId={prospect.id}
+                onSave={val => onUpdate({ Referrer1: val })}
+              />
             </div>
-          );
-        })}
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] text-muted-foreground w-28 shrink-0 tracking-wide">Related Contact</span>
+              <InlineProspectLookupField
+                value={prospect.Related_Contact}
+                excludeId={prospect.id}
+                onSave={val => onUpdate({ Related_Contact: val })}
+              />
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -1840,11 +2020,17 @@ export default function ProspectDetailPage() {
   const id = params.id;
 
   const fromParam = searchParams.get("from");
+  // `from=prospect:<id>` → back to that prospect (used when navigating
+  // between prospects via Referrer / Related Contact links).
+  const prospectBackId = fromParam?.startsWith("prospect:")
+    ? fromParam.slice("prospect:".length)
+    : null;
   const backNav: { label: string; href: string } =
-    fromParam === "dashboard"  ? { label: "Dashboard",  href: "/" }
-    : fromParam === "people"     ? { label: "People",     href: "/people" }
-    : fromParam === "leadership" ? { label: "Leadership", href: "/leadership" }
-    :                              { label: "Pipeline",   href: "/pipeline" };
+    prospectBackId                 ? { label: "Prospect",   href: `/prospect/${prospectBackId}` }
+    : fromParam === "dashboard"    ? { label: "Dashboard",  href: "/" }
+    : fromParam === "people"       ? { label: "People",     href: "/people" }
+    : fromParam === "leadership"   ? { label: "Leadership", href: "/leadership" }
+    :                                { label: "Pipeline",   href: "/pipeline" };
 
   const [prospect,     setProspect]     = useState<ZohoProspectDetail | null>(null);
   const [notes,        setNotes]        = useState<ZohoNote[]>([]);

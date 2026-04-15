@@ -36,6 +36,8 @@ const PROSPECT_FIELDS = [
   "Committed_Amount",
   "Growth_Target",
   "Company_Entity",
+  "Referrer1",
+  "Related_Contact",
 ].join(",");
 
 type ZohoListApiResponse = {

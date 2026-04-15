@@ -7,7 +7,7 @@ import { StatColumn } from "./stat-column";
 import { PipelineFunnel } from "./pipeline-funnel";
 import { SourceROITable } from "./source-roi-table";
 import { RedFlags } from "./red-flags";
-import { toPersonWithComputed, todayISO } from "@/lib/zoho-map";
+import { toPersonWithComputed, todayISO, enrichRolesFromReverseIndex } from "@/lib/zoho-map";
 import { PIPELINE_STAGES, ACTIVE_PIPELINE_STAGES, LEAD_SOURCE_LABELS } from "@/lib/constants";
 import type { ZohoProspect } from "@/types";
 import type {
@@ -167,7 +167,9 @@ export function LeadershipClient({ isPartialAccess }: LeadershipClientProps) {
         fundTarget?: number;
       };
       const today = todayISO();
-      setPeople((json.prospects ?? []).map(p => toPersonWithComputed(p, today)));
+      const raw = json.prospects ?? [];
+      const mapped = raw.map(p => toPersonWithComputed(p, today));
+      setPeople(enrichRolesFromReverseIndex(raw, mapped));
       setCachedAt(json.cachedAt ?? Date.now());
       setFundTarget(json.fundTarget ?? 0);
     } catch {

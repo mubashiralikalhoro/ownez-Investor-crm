@@ -66,6 +66,37 @@ export function toPersonWithComputed(p: ZohoProspect, today: string): PersonWith
     isStale: p.Stale_Flag === true,
     isOverdue,
     activityCount: 0,
-    referrerName: null,
+    referrerName: p.Referrer1?.name ?? null,
   };
+}
+
+/**
+ * Walk the full prospect list once to find everyone who appears as a
+ * Referrer1 or Related_Contact target, then stack those roles onto the
+ * matching PersonWithComputed rows. Roles are additive.
+ */
+export function enrichRolesFromReverseIndex(
+  raw: ZohoProspect[],
+  people: PersonWithComputed[],
+): PersonWithComputed[] {
+  const referrerIds = new Set<string>();
+  const relatedContactIds = new Set<string>();
+
+  for (const r of raw) {
+    if (r.Referrer1?.id)       referrerIds.add(r.Referrer1.id);
+    if (r.Related_Contact?.id) relatedContactIds.add(r.Related_Contact.id);
+  }
+
+  if (referrerIds.size === 0 && relatedContactIds.size === 0) return people;
+
+  return people.map((p) => {
+    const extra: PersonWithComputed["roles"] = [];
+    if (referrerIds.has(p.id) && !p.roles.includes("referrer")) {
+      extra.push("referrer");
+    }
+    if (relatedContactIds.has(p.id) && !p.roles.includes("related_contact")) {
+      extra.push("related_contact");
+    }
+    return extra.length === 0 ? p : { ...p, roles: [...p.roles, ...extra] };
+  });
 }
