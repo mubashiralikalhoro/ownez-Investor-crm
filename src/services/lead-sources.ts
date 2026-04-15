@@ -166,6 +166,7 @@ export async function deleteLeadSource(
 export type SyncAllResult = {
   added:   string[];   // Zoho values added to DB
   removed: string[];   // DB values removed (not in Zoho)
+  updated: string[];   // DB rows whose label was changed to match Zoho's display_value
   error?:  string;
 };
 
@@ -173,52 +174,57 @@ export type SyncAllResult = {
  * Sync all lead sources with Zoho's Lead_Source picklist:
  * - Values in Zoho but not in DB → add to DB (zohoSynced: true)
  * - Values in DB but not in Zoho → delete from DB
+ * - Existing rows whose label differs from Zoho's display_value → update label
  */
 export async function syncAllLeadSourcesWithZoho(
   accessToken: string,
 ): Promise<SyncAllResult> {
   const field = await fetchProspectLeadSourceField(accessToken);
-  if (!field) return { added: [], removed: [], error: "Lead_Source field not found on Prospect module." };
+  if (!field) return { added: [], removed: [], updated: [], error: "Lead_Source field not found on Prospect module." };
 
-  const zohoValues = new Set(field.picklist.map(v => v.actual_value));
-  const dbRows     = await prisma.leadSource.findMany();
-  const dbKeys     = new Set(dbRows.map(r => r.key));
+  const zohoByKey = new Map(field.picklist.map(v => [v.actual_value, v.display_value || v.actual_value]));
+  const dbRows    = await prisma.leadSource.findMany();
+  const dbKeys    = new Set(dbRows.map(r => r.key));
 
   const added:   string[] = [];
   const removed: string[] = [];
+  const updated: string[] = [];
 
-  // Add values from Zoho that are missing in DB.
+  // Add values from Zoho that are missing in DB, and update labels when Zoho's display_value drifted.
   let nextOrder = Math.max(0, ...dbRows.map(r => r.displayOrder)) + 1;
-  for (const val of zohoValues) {
-    if (!dbKeys.has(val)) {
+  for (const [key, displayValue] of zohoByKey) {
+    if (!dbKeys.has(key)) {
       await prisma.leadSource.create({
         data: {
-          key:          val,
-          label:        val,
+          key,
+          label:        displayValue,
           displayOrder: nextOrder++,
           active:       true,
           zohoSynced:   true,
         },
       });
-      added.push(val);
+      added.push(key);
     } else {
-      // Mark existing DB rows as synced if they weren't already.
-      await prisma.leadSource.updateMany({
-        where: { key: val, zohoSynced: false },
-        data:  { zohoSynced: true },
-      });
+      const existing = dbRows.find(r => r.key === key)!;
+      const patch: { zohoSynced?: boolean; label?: string } = {};
+      if (!existing.zohoSynced)          patch.zohoSynced = true;
+      if (existing.label !== displayValue) patch.label      = displayValue;
+      if (Object.keys(patch).length > 0) {
+        await prisma.leadSource.update({ where: { id: existing.id }, data: patch });
+        if (patch.label) updated.push(`${key} → ${displayValue}`);
+      }
     }
   }
 
   // Remove DB rows that are no longer in Zoho.
   for (const row of dbRows) {
-    if (!zohoValues.has(row.key)) {
+    if (!zohoByKey.has(row.key)) {
       await prisma.leadSource.delete({ where: { id: row.id } });
       removed.push(row.key);
     }
   }
 
-  return { added, removed };
+  return { added, removed, updated };
 }
 
 // ─── Simple update (label only now — active toggle removed) ──────────────────

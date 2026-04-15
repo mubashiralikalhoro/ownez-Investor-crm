@@ -52,7 +52,7 @@ export function PipelineFunnel({ funnel, prospects }: PipelineFunnelProps) {
               >
                 <span className="text-xs font-medium text-navy">{stage.label}</span>
                 <span className="text-xs text-navy/70">
-                  {stage.count} · {formatCurrency(stage.totalValue)}
+                  {stage.count} · Target {formatCurrency(stage.totalValue)}
                 </span>
               </div>
             </button>
@@ -80,7 +80,7 @@ export function PipelineFunnel({ funnel, prospects }: PipelineFunnelProps) {
               <div className="flex items-center justify-between px-3 py-2 rounded-sm bg-green-50 border border-green-300">
                 <span className="text-xs font-medium text-green-700">Funded</span>
                 <span className="text-xs text-green-600">
-                  {fundedStage.count} · {formatCurrency(fundedStage.totalValue)}
+                  {fundedStage.count} · Committed {formatCurrency(fundedStage.totalValue)}
                 </span>
               </div>
             </button>

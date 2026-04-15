@@ -299,76 +299,132 @@ export async function getRecentActivityNotes(
 
 // ─── Global recent Calls ─────────────────────────────────────────────────────
 
+const RECENT_CALL_FIELDS =
+  "id,Subject,Call_Agenda,Call_Type,Call_Status,Description,Call_Start_Time,Created_Time,Created_By,Who_Id,What_Id,Owner";
+
+const RECENT_EVENT_FIELDS =
+  "id,Event_Title,Start_DateTime,End_DateTime,Description,Created_Time,Created_By,Owner,What_Id";
+
 /**
- * GET /Calls — recent calls across the whole CRM.
- * Falls back silently on sort errors or permission issues so the activity feed
- * still shows notes/events even if calls can't be fetched.
+ * Recent Calls linked to Prospect-module records.
+ *
+ * Primary: `GET /Calls/search?criteria=($se_module:equals:Prospect)` — one
+ * server-side query returns only Prospect-linked calls regardless of total
+ * CRM call volume. Scales with the activity feed size, not the number of
+ * prospects or the global call count.
+ *
+ * Fallback: if Zoho rejects the criteria (400), a caller-supplied
+ * `prospectIds` set filters the broad `GET /Calls` listing client-side.
  */
 export async function getRecentCalls(
   accessToken: string,
-  limit: number = 10
+  limit: number = 10,
+  getProspectIds?: () => Promise<Set<string>>,
 ): Promise<ZohoCall[]> {
-  const fields =
-    "id,Subject,Call_Type,Call_Status,Description,Call_Start_Time,Created_Time,Created_By,Who_Id";
-
-  const tryFetch = async (params: Record<string, string | number>) => {
-    const { data: json } = await zohoApi.get<{ data?: ZohoCall[] }>(
-      accessToken, "/Calls", params
-    );
-    return json.data ?? [];
-  };
+  const perPage = Math.min(Math.max(limit, 1), 200);
 
   try {
-    return await tryFetch({
-      fields, sort_by: "Created_Time", sort_order: "desc",
-      per_page: Math.min(limit, 50),
-    });
+    const { data: json } = await zohoApi.get<{ data?: ZohoCall[] }>(
+      accessToken,
+      "/Calls/search",
+      {
+        criteria: "($se_module:equals:Prospect)",
+        fields: RECENT_CALL_FIELDS,
+        sort_by: "Created_Time",
+        sort_order: "desc",
+        per_page: perPage,
+      },
+    );
+    return json.data ?? [];
   } catch (err) {
     if (err instanceof AxiosError) {
-      if (err.response?.status === 204) return [];
-      // Retry without sort if that was the problem
-      if (err.response?.status === 400) {
-        try { return await tryFetch({ fields, per_page: Math.min(limit, 50) }); }
-        catch { return []; }
-      }
+      const status = err.response?.status;
+      if (status === 204) return [];
+      if (status !== 400) return [];
+    } else {
+      return [];
     }
-    return []; // any other error — don't break the whole feed
+  }
+
+  if (!getProspectIds) return [];
+  try {
+    const [prospectIds, { data: json }] = await Promise.all([
+      getProspectIds(),
+      zohoApi.get<{ data?: ZohoCall[] }>(
+        accessToken,
+        "/Calls",
+        {
+          fields: RECENT_CALL_FIELDS,
+          sort_by: "Created_Time",
+          sort_order: "desc",
+          per_page: Math.min(perPage * 3, 200),
+        },
+      ),
+    ]);
+    return (json.data ?? []).filter(
+      c => c.What_Id?.id && prospectIds.has(c.What_Id.id),
+    );
+  } catch {
+    return [];
   }
 }
 
 // ─── Global recent Events ─────────────────────────────────────────────────────
 
 /**
- * GET /Events — recent meetings/events across the whole CRM.
- * Same silent-fallback approach as getRecentCalls.
+ * Recent Events linked to Prospect-module records — same strategy as
+ * `getRecentCalls`. `$se_module:equals:Prospect` criteria first, broad-fetch
+ * fallback filtered by `prospectIds` if Zoho rejects the criteria.
  */
 export async function getRecentEvents(
   accessToken: string,
-  limit: number = 8
+  limit: number = 8,
+  getProspectIds?: () => Promise<Set<string>>,
 ): Promise<ZohoEvent[]> {
-  const fields =
-    "id,Event_Title,Start_DateTime,End_DateTime,Description,Created_Time,Created_By,Owner";
-
-  const tryFetch = async (params: Record<string, string | number>) => {
-    const { data: json } = await zohoApi.get<{ data?: ZohoEvent[] }>(
-      accessToken, "/Events", params
-    );
-    return json.data ?? [];
-  };
+  const perPage = Math.min(Math.max(limit, 1), 200);
 
   try {
-    return await tryFetch({
-      fields, sort_by: "Created_Time", sort_order: "desc",
-      per_page: Math.min(limit, 50),
-    });
+    const { data: json } = await zohoApi.get<{ data?: ZohoEvent[] }>(
+      accessToken,
+      "/Events/search",
+      {
+        criteria: "($se_module:equals:Prospect)",
+        fields: RECENT_EVENT_FIELDS,
+        sort_by: "Created_Time",
+        sort_order: "desc",
+        per_page: perPage,
+      },
+    );
+    return json.data ?? [];
   } catch (err) {
     if (err instanceof AxiosError) {
-      if (err.response?.status === 204) return [];
-      if (err.response?.status === 400) {
-        try { return await tryFetch({ fields, per_page: Math.min(limit, 50) }); }
-        catch { return []; }
-      }
+      const status = err.response?.status;
+      if (status === 204) return [];
+      if (status !== 400) return [];
+    } else {
+      return [];
     }
+  }
+
+  if (!getProspectIds) return [];
+  try {
+    const [prospectIds, { data: json }] = await Promise.all([
+      getProspectIds(),
+      zohoApi.get<{ data?: ZohoEvent[] }>(
+        accessToken,
+        "/Events",
+        {
+          fields: RECENT_EVENT_FIELDS,
+          sort_by: "Created_Time",
+          sort_order: "desc",
+          per_page: Math.min(perPage * 3, 200),
+        },
+      ),
+    ]);
+    return (json.data ?? []).filter(
+      e => e.What_Id?.id && prospectIds.has(e.What_Id.id),
+    );
+  } catch {
     return [];
   }
 }

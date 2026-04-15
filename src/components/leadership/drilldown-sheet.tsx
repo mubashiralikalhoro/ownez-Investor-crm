@@ -19,8 +19,15 @@ interface DrilldownSheetProps {
 }
 
 function ProspectRow({ p, onClose }: { p: ProspectWithFunded; onClose: () => void }) {
-  const displayAmount = p.fundedAmount ?? p.initialInvestmentTarget;
-  const amountLabel = p.fundedAmount ? "funded" : "target";
+  // Funded prospects show what actually came through (Committed Amount, or the
+  // mock `fundedAmount`); all other stages show the Initial Investment Target.
+  const isFunded = p.pipelineStage === "funded";
+  const displayAmount = isFunded
+    ? (p.fundedAmount ?? p.committedAmount ?? p.initialInvestmentTarget)
+    : p.initialInvestmentTarget;
+  const amountLabel = isFunded && (p.fundedAmount ?? p.committedAmount) != null
+    ? "committed"
+    : "target";
   return (
     <Link
       key={p.id}

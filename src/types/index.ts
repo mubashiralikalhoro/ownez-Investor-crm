@@ -155,8 +155,9 @@ export type ZohoEmail = {
   from: { user_name: string; email: string } | null;
   to: { user_name: string; email: string }[];
   cc?: { user_name: string; email: string }[];
-  sent_time: string | null;   // ISO datetime
-  date_time?: string | null;  // alternative field
+  sent_time: string | null;   // ISO datetime (preferred when present)
+  date_time?: string | null;  // alternative ISO datetime field
+  time?: string | null;       // ISO datetime; populated for IMAP-sourced emails
   summary?: string | null;    // plain-text preview
   content?: string | null;    // HTML full body
 };
@@ -194,6 +195,7 @@ export type ZohoEvent = {
   All_Day: boolean;
   Modified_Time: string | null;
   Created_Time: string | null;
+  What_Id?: { name: string; id: string } | null;
 };
 
 /** Pipeline Stage History entry from GET /Prospect/{id}/Pipeline_Stage_History. */

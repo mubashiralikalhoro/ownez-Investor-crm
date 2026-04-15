@@ -95,12 +95,14 @@ export function LeadSourcesTab({ sources: initialSources }: LeadSourcesTabProps)
       const body = (await res.json()) as {
         added?: string[];
         removed?: string[];
+        updated?: string[];
         error?: string;
       };
       if (!res.ok) throw new Error(body.error || `Sync failed (${res.status})`);
 
       const parts: string[] = [];
       if (body.added?.length)   parts.push(`Added: ${body.added.join(", ")}`);
+      if (body.updated?.length) parts.push(`Updated: ${body.updated.join(", ")}`);
       if (body.removed?.length) parts.push(`Removed: ${body.removed.join(", ")}`);
       setSyncResult(parts.length > 0 ? parts.join(". ") : "Everything is in sync.");
 

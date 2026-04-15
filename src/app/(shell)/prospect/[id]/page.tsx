@@ -27,6 +27,8 @@ import type {
   ZohoCall, ZohoEvent, ZohoStageHistory, ZohoAttachment, ZohoTask, ZohoFundedRecord,
 } from "@/types";
 import { getAppUserProfile } from "@/lib/auth-storage";
+import { SetLastViewed } from "@/components/set-last-viewed";
+import { ZOHO_TO_STAGE } from "@/lib/zoho-map";
 
 // ─── Auth helpers ─────────────────────────────────────────────────────────────
 
@@ -363,8 +365,10 @@ function buildUnifiedTimeline(
     items.push({ id: `tl-${t.id}`, kind, sortTime: new Date(t.audited_time).getTime(), timeline: t });
   });
   emails.forEach((e) => {
-    const ts = e.sent_time ?? e.date_time ?? null;
-    items.push({ id: `em-${e.message_id}`, kind: "email", sortTime: ts ? new Date(ts).getTime() : 0, email: e });
+    const iso = e.sent_time ?? e.date_time ?? e.time ?? null;
+    const parsed = iso ? new Date(iso).getTime() : NaN;
+    const sortTime = Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+    items.push({ id: `em-${e.message_id}`, kind: "email", sortTime, email: e });
   });
   calls.forEach((c) => {
     const ts = c.Call_Start_Time ?? c.Created_Time ?? null;
@@ -418,6 +422,23 @@ function formatTimeOnly(iso: string): string {
     hour12: true,
     timeZone: "America/Chicago",
   });
+}
+
+function formatDateTime(iso: string): string {
+  const d = new Date(iso);
+  const datePart = d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "America/Chicago",
+  });
+  const timePart = d.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: "America/Chicago",
+  });
+  return `${datePart} · ${timePart}`;
 }
 
 /** YYYY-MM-DD day key in America/Chicago — use for date grouping. */
@@ -923,10 +944,12 @@ function ActivityIcon({ kind }: { kind: ActivityKind }) {
   );
 }
 
+const UNKNOWN_DATE_KEY = "__unknown__";
+
 function groupByDate(activities: UnifiedActivity[]): { dateLabel: string; items: UnifiedActivity[] }[] {
   const map = new Map<string, UnifiedActivity[]>();
   for (const a of activities) {
-    const key = toCtDateKey(new Date(a.sortTime));
+    const key = a.sortTime > 0 ? toCtDateKey(new Date(a.sortTime)) : UNKNOWN_DATE_KEY;
     if (!map.has(key)) map.set(key, []);
     map.get(key)!.push(a);
   }
@@ -935,20 +958,27 @@ function groupByDate(activities: UnifiedActivity[]): { dateLabel: string; items:
   const yest = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   const yesterdayKey = toCtDateKey(yest);
   return Array.from(map.entries())
-    .sort(([a], [b]) => b.localeCompare(a))
+    // Push the "unknown" bucket to the bottom, otherwise sort by key desc.
+    .sort(([a], [b]) => {
+      if (a === UNKNOWN_DATE_KEY) return 1;
+      if (b === UNKNOWN_DATE_KEY) return -1;
+      return b.localeCompare(a);
+    })
     .map(([key, items]) => ({
       dateLabel:
-        key === todayKey
-          ? "Today"
-          : key === yesterdayKey
-            ? "Yesterday"
-            : new Date(key + "T12:00:00Z").toLocaleDateString("en-US", {
-                weekday: "long",
-                month: "long",
-                day: "numeric",
-                year: "numeric",
-                timeZone: "America/Chicago",
-              }),
+        key === UNKNOWN_DATE_KEY
+          ? "Undated"
+          : key === todayKey
+            ? "Today"
+            : key === yesterdayKey
+              ? "Yesterday"
+              : new Date(key + "T12:00:00Z").toLocaleDateString("en-US", {
+                  weekday: "long",
+                  month: "long",
+                  day: "numeric",
+                  year: "numeric",
+                  timeZone: "America/Chicago",
+                }),
       items,
     }));
 }
@@ -1001,12 +1031,12 @@ function CallCardContent({ activity }: { activity: UnifiedActivity }) {
 
 function EmailCardContent({ activity }: { activity: UnifiedActivity }) {
   const e = activity.email!;
-  const ts = e.sent_time ?? e.date_time;
+  const ts = e.sent_time ?? e.date_time ?? e.time;
   return (
     <div className="rounded-lg border bg-card px-3 py-2.5">
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-sm font-medium text-navy truncate">{e.subject || "(No subject)"}</span>
-        {ts && <span className="text-[11px] text-muted-foreground shrink-0">{formatTimeOnly(ts)}</span>}
+        {ts && <span className="text-[11px] text-muted-foreground shrink-0">{formatDateTime(ts)}</span>}
       </div>
       {e.from && (
         <p className="mt-0.5 text-[11px] text-muted-foreground">
@@ -1087,9 +1117,9 @@ function TimelineCardContent({ activity }: { activity: UnifiedActivity }) {
         )}
         {stageField && (
           <div className="mt-1.5 inline-flex items-center gap-2 rounded-md border border-gold/20 bg-gold/5 px-2.5 py-1">
-            <span className="text-xs text-muted-foreground line-through">{stageField._value.old ?? "—"}</span>
+            <span className="text-xs text-muted-foreground line-through">{stageField._value?.old ?? "—"}</span>
             <ArrowRight size={11} className="text-muted-foreground/50 shrink-0" />
-            <span className="text-xs font-semibold text-navy">{stageField._value.new ?? "—"}</span>
+            <span className="text-xs font-semibold text-navy">{stageField._value?.new ?? "—"}</span>
           </div>
         )}
       </div>
@@ -1116,20 +1146,24 @@ function TimelineCardContent({ activity }: { activity: UnifiedActivity }) {
       )}
       {t.field_history && t.field_history.length > 0 && (
         <div className="mt-2 flex flex-col gap-1.5 rounded-md bg-muted/40 px-2.5 py-2">
-          {t.field_history.map(fh => (
-            <div key={fh.id} className="flex items-start gap-2 text-xs">
-              <span className="font-medium text-navy/70 shrink-0 min-w-[110px]">{fh.field_label}</span>
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-muted-foreground line-through">
-                  {fh._value.old !== null ? formatTimelineFieldValue(fh._value.old, fh.data_type) : "—"}
-                </span>
-                <span className="text-muted-foreground/40">→</span>
-                <span className="font-medium text-navy">
-                  {fh._value.new !== null ? formatTimelineFieldValue(fh._value.new, fh.data_type) : "—"}
-                </span>
+          {t.field_history.map(fh => {
+            const oldVal = fh._value?.old ?? null;
+            const newVal = fh._value?.new ?? null;
+            return (
+              <div key={fh.id} className="flex items-start gap-2 text-xs">
+                <span className="font-medium text-navy/70 shrink-0 min-w-[110px]">{fh.field_label}</span>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-muted-foreground line-through">
+                    {oldVal !== null ? formatTimelineFieldValue(oldVal, fh.data_type) : "—"}
+                  </span>
+                  <span className="text-muted-foreground/40">→</span>
+                  <span className="font-medium text-navy">
+                    {newVal !== null ? formatTimelineFieldValue(newVal, fh.data_type) : "—"}
+                  </span>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
@@ -1807,9 +1841,10 @@ export default function ProspectDetailPage() {
 
   const fromParam = searchParams.get("from");
   const backNav: { label: string; href: string } =
-    fromParam === "dashboard" ? { label: "Dashboard", href: "/" }
-    : fromParam === "people"   ? { label: "People",    href: "/people" }
-    :                            { label: "Pipeline",  href: "/pipeline" };
+    fromParam === "dashboard"  ? { label: "Dashboard",  href: "/" }
+    : fromParam === "people"     ? { label: "People",     href: "/people" }
+    : fromParam === "leadership" ? { label: "Leadership", href: "/leadership" }
+    :                              { label: "Pipeline",   href: "/pipeline" };
 
   const [prospect,     setProspect]     = useState<ZohoProspectDetail | null>(null);
   const [notes,        setNotes]        = useState<ZohoNote[]>([]);
@@ -1972,6 +2007,12 @@ export default function ProspectDetailPage() {
 
   return (
     <div className="w-full overflow-x-hidden">
+      <SetLastViewed
+        id={prospect.id}
+        fullName={prospect.Name}
+        pipelineStage={ZOHO_TO_STAGE[prospect.Pipeline_Stage ?? ""] ?? null}
+        organizationName={prospect.Company_Entity}
+      />
       {/* Back link */}
       <div className="px-3 md:px-8 pt-3 md:pt-6">
         <Link href={backNav.href} className="text-xs text-muted-foreground hover:text-gold transition-colors">

@@ -4,7 +4,10 @@ import {
   getRecentActivityNotes,
   getRecentCalls,
   getRecentEvents,
+  getAllProspects,
 } from "@/services/prospects";
+import { fetchZohoOrgUsers } from "@/lib/zoho/oauth";
+import { resolveAppRoleFromZohoCrmUser } from "@/lib/app-role";
 import type { RecentActivityEntry, User, UserRole, ActivityType } from "@/lib/types";
 
 /**
@@ -35,14 +38,6 @@ function parseISOToDateAndTime(iso: string | null): { date: string; time: string
   }
 }
 
-// ─── Type for collecting unique users ─────────────────────────────────────────
-
-type UserSeed = { id: string; name: string; email?: string };
-
-function addUser(map: Map<string, UserSeed>, seed: UserSeed | null | undefined) {
-  if (seed?.id) map.set(seed.id, seed);
-}
-
 // ─── Route ────────────────────────────────────────────────────────────────────
 
 export async function GET(_request: NextRequest) {
@@ -52,24 +47,38 @@ export async function GET(_request: NextRequest) {
   }
 
   try {
-    // ── Fetch all three sources in parallel ──────────────────────────────────
-    const [notes, calls, events] = await Promise.all([
+    // ── Fetch sources in parallel ────────────────────────────────────────────
+    // Calls/Events use a server-side `$se_module:equals:Prospect` criteria
+    // search, so only Prospect-linked records come back — no client-side
+    // filtering and no dependency on the total prospect count. If Zoho
+    // rejects that criteria on this org/layout, the services fall through
+    // to a broad listing filtered by the prospect-id set, which is loaded
+    // lazily (cached in Redis) only when the fallback actually runs.
+    let prospectIdsPromise: Promise<Set<string>> | null = null;
+    const getProspectIds = () => {
+      if (!prospectIdsPromise) {
+        prospectIdsPromise = getAllProspects(session.accessToken).then(
+          r => new Set(r.data.map(p => p.id)),
+        );
+      }
+      return prospectIdsPromise;
+    };
+
+    const [notes, calls, events, orgUsers] = await Promise.all([
       getRecentActivityNotes(session.accessToken, 15),
-      getRecentCalls(session.accessToken, 10),
-      getRecentEvents(session.accessToken, 8),
+      getRecentCalls(session.accessToken, 20, getProspectIds),
+      getRecentEvents(session.accessToken, 20, getProspectIds),
+      fetchZohoOrgUsers(session.accessToken, session.apiDomain).catch(() => []),
     ]);
 
     const allEntries: RecentActivityEntry[] = [];
-    const userMap = new Map<string, UserSeed>();
 
-    // ── 1. Notes ─────────────────────────────────────────────────────────────
+    // ── 1. Notes (already filtered to Prospect module in the service) ───────
     for (const note of notes) {
       const { date, time } = parseISOToDateAndTime(note.Created_Time);
       const detail =
         [note.Note_Title, note.Note_Content].filter(Boolean).join(" — ") ||
         "(no content)";
-
-      addUser(userMap, note.Created_By);
 
       allEntries.push({
         id: `note-${note.id}`,
@@ -87,9 +96,11 @@ export async function GET(_request: NextRequest) {
       });
     }
 
-    // ── 2. Calls ─────────────────────────────────────────────────────────────
+    // ── 2. Calls (already filtered to $se_module=Prospect by the service) ──
     for (const call of calls) {
-      // Use the best available timestamp
+      const prospectId = call.What_Id?.id;
+      if (!prospectId) continue; // missing parent — can't link back to a prospect
+
       const isoTime = call.Call_Start_Time ?? call.Created_Time;
       const { date, time } = parseISOToDateAndTime(isoTime);
       if (!date) continue;
@@ -108,13 +119,10 @@ export async function GET(_request: NextRequest) {
         call.Call_Status?.toLowerCase().includes("no answer") ||
         call.Call_Status?.toLowerCase().includes("busy");
 
-      addUser(userMap, call.Owner ?? call.Created_By);
-
       allEntries.push({
         id: `call-${call.id}`,
-        // Who_Id is the prospect/contact the call is with
-        personId: call.Who_Id?.id ?? "",
-        personName: call.Who_Id?.name ?? "—",
+        personId: prospectId,
+        personName: call.What_Id?.name ?? "—",
         activityType: "call" as ActivityType,
         source: "manual",
         date,
@@ -127,8 +135,11 @@ export async function GET(_request: NextRequest) {
       });
     }
 
-    // ── 3. Events (Meetings) ─────────────────────────────────────────────────
+    // ── 3. Events — already filtered to Prospect-module ─────────────────────
     for (const event of events) {
+      const prospectId = event.What_Id?.id;
+      if (!prospectId) continue;
+
       const isoTime = event.Start_DateTime ?? event.Created_Time;
       const { date, time } = parseISOToDateAndTime(isoTime);
       if (!date) continue;
@@ -138,12 +149,10 @@ export async function GET(_request: NextRequest) {
         event.Event_Title ||
         "Meeting";
 
-      addUser(userMap, event.Owner ?? event.Created_By);
-
       allEntries.push({
         id: `event-${event.id}`,
-        personId: "",
-        personName: "—",
+        personId: prospectId,
+        personName: event.What_Id?.name ?? "—",
         activityType: "meeting" as ActivityType,
         source: "manual",
         date,
@@ -167,15 +176,23 @@ export async function GET(_request: NextRequest) {
 
     const activities = allEntries.slice(0, 20);
 
-    // ── Build unique users list for the rep-filter dropdown ─────────────────
-    const users: User[] = Array.from(userMap.values()).map(u => ({
-      id: u.id,
-      username: u.email ?? u.name,
-      fullName: u.name,
-      role: "rep" as UserRole,
-      isActive: true,
-      passwordHash: "",
-    }));
+    // ── Build rep list from Zoho org users, filtered to env-allowed roles ──
+    // Mirrors the admin page's source so the dropdown shows real reps only.
+    const users: User[] = [];
+    for (const u of orgUsers) {
+      const role = resolveAppRoleFromZohoCrmUser(u);
+      if (role === null) continue; // skip users outside env allowlist
+
+      users.push({
+        id:       u.id,
+        username: u.email ?? u.full_name ?? u.id,
+        fullName: u.full_name ?? u.email ?? u.id,
+        role:     role as UserRole,
+        isActive: true,
+        passwordHash: "",
+      });
+    }
+    users.sort((a, b) => a.fullName.localeCompare(b.fullName));
 
     return NextResponse.json({ activities, users });
   } catch (e) {
