@@ -5,8 +5,7 @@ import {
   getZohoRedirectUri,
   sanitizeOAuthNextParam,
 } from "@/lib/zoho/oauth";
-import { resolveAppRoleFromZohoCrmUser } from "@/lib/app-role";
-import { getEffectiveUserState } from "@/services/app-users";
+import { resolveAuthorizedUser } from "@/services/app-users";
 import {
   ZOHO_ACCESS_COOKIE,
   ZOHO_REFRESH_COOKIE,
@@ -71,22 +70,8 @@ export async function POST(request: Request) {
     userFetchWarning = e instanceof Error ? e.message : "Failed to load Zoho current user.";
   }
 
-  const envRole = resolveAppRoleFromZohoCrmUser(user);
-  if (envRole === null) {
-    return NextResponse.json(
-      {
-        error:             "role_not_allowed",
-        error_description: `Your Zoho role "${user?.role?.name ?? "unknown"}" (id: ${user?.role?.id ?? "unknown"}) is not allowed to access this app.`,
-      },
-      { status: 403 }
-    );
-  }
-
-  // Merge with any admin-set per-user override stored in Prisma.
-  // `null` means the admin has explicitly deactivated this user.
-  const sub = user?.id ?? `zoho-${crypto.randomUUID()}`;
-  const effective = await getEffectiveUserState(sub, envRole);
-  if (effective === null) {
+  const authorized = await resolveAuthorizedUser(user);
+  if (authorized === "revoked") {
     return NextResponse.json(
       {
         error:             "access_revoked",
@@ -95,6 +80,18 @@ export async function POST(request: Request) {
       { status: 403 }
     );
   }
+  if (authorized === "not_authorized") {
+    return NextResponse.json(
+      {
+        error:             "not_authorized",
+        error_description: "Your Zoho user is not authorized to access this app. Ask an admin to add you.",
+      },
+      { status: 403 }
+    );
+  }
+
+  const sub       = user?.id ?? `zoho-${crypto.randomUUID()}`;
+  const effective = authorized;
 
   const email    = user?.email ?? null;
   const fullName = user?.full_name?.trim() || email || "User";

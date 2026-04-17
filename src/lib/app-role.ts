@@ -1,29 +1,33 @@
-import type { UserRole } from "@/lib/types";
-import type { ZohoCrmUser } from "@/lib/zoho/oauth";
+/**
+ * Bootstrap-admin env helper.
+ *
+ * Users whose Zoho CRM user id appears in `BOOTSTRAP_ADMIN_USER_IDS` are
+ * auto-allowed to log in with the `admin` role. They bypass the
+ * `UserPermission` table entirely — editing or deactivating them via
+ * the Admin UI is not supported; the only way to grant/revoke bootstrap
+ * admin status is by editing `.env`.
+ *
+ * Every other user must be explicitly added by an admin via the Users tab
+ * (which creates an `active=true` `UserPermission` row). No role-based
+ * env allowlist exists anymore.
+ *
+ * Configure in env (comma-separated Zoho user IDs):
+ *   BOOTSTRAP_ADMIN_USER_IDS=1797876000000123456,1797876000000234567
+ *
+ * Find a user id: log in → check `zoho_user` cookie → `id`, or GET
+ * /api/users and grab `id` from the response.
+ */
 
-function parseIds(raw: string | undefined): string[] {
-  if (!raw?.trim()) return [];
-  return raw.split(",").map((x) => x.trim()).filter(Boolean);
+function parseIds(raw: string | undefined): Set<string> {
+  if (!raw?.trim()) return new Set();
+  return new Set(raw.split(",").map((x) => x.trim()).filter(Boolean));
 }
 
-/**
- * Resolves the app UserRole from the Zoho CRM current user object.
- *
- * Configure in env (comma-separated Zoho role IDs — exact numeric strings):
- *   ZOHO_ADMIN_ROLE_IDS=1797876000000026005
- *   ZOHO_REP_ROLE_IDS=1797876000000099001,1797876000000099002
- *
- * Find a role ID: log in → check `zoho_user` in localStorage → `role.id`.
- * Returns null if the role ID is not in either list — access is denied.
- */
-export function resolveAppRoleFromZohoCrmUser(
-  user: ZohoCrmUser | null
-): UserRole | null {
-  const roleId = user?.role?.id?.trim();
-  if (!roleId) return null;
+export function isBootstrapAdmin(zohoUserId: string | null | undefined): boolean {
+  if (!zohoUserId) return false;
+  return parseIds(process.env.BOOTSTRAP_ADMIN_USER_IDS).has(zohoUserId.trim());
+}
 
-  if (parseIds(process.env.ZOHO_ADMIN_ROLE_IDS).includes(roleId)) return "admin";
-  if (parseIds(process.env.ZOHO_REP_ROLE_IDS).includes(roleId)) return "rep";
-
-  return null;
+export function listBootstrapAdminIds(): string[] {
+  return Array.from(parseIds(process.env.BOOTSTRAP_ADMIN_USER_IDS));
 }

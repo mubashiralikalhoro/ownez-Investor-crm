@@ -63,3 +63,19 @@ model AppSettings {
   fundTarget   Int      @default(0)
   updatedAt    DateTime @updatedAt
 }
+
+/// Idle-threshold (days) per pipeline stage. Seeded from PIPELINE_STAGES in
+/// src/lib/constants.ts on first read. Admins edit these in Admin > Stages;
+/// src/lib/stale.ts reads from here via the thresholds service to decide
+/// when a prospect is flagged stale. Exposed publicly at
+/// GET /api/stages/thresholds for internal consumers.
+///
+/// `stage`         = PipelineStage key, e.g. "prospect", "pitch".
+/// `idleThreshold` = days before a prospect in this stage is stale;
+///                   null means "never goes stale" (funded, nurture, dead).
+model PipelineStageThreshold {
+  id            Int      @id @default(autoincrement())
+  stage         String   @unique
+  idleThreshold Int?
+  updatedAt     DateTime @updatedAt
+}

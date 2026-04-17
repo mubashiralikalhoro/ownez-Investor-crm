@@ -1,6 +1,7 @@
 import type { Activity, PipelineStage } from "./types";
-import { PIPELINE_STAGES, TOUCH_ACTIVITY_TYPES, INACTIVE_STAGES } from "./constants";
+import { TOUCH_ACTIVITY_TYPES, INACTIVE_STAGES } from "./constants";
 import { getTodayCT } from "./format";
+import { getStageThresholdFromCache } from "./thresholds-cache";
 
 export function computeDaysSinceLastTouch(
   activities: Activity[],
@@ -30,11 +31,11 @@ export function computeIsStale(
 ): boolean {
   if (!stage || INACTIVE_STAGES.includes(stage)) return false;
 
-  const stageConfig = PIPELINE_STAGES.find((s) => s.key === stage);
-  if (!stageConfig || stageConfig.idleThreshold === null) return false;
+  const idleThreshold = getStageThresholdFromCache(stage);
+  if (idleThreshold === null) return false;
   if (daysSinceLastTouch === null) return false;
 
-  if (daysSinceLastTouch < stageConfig.idleThreshold) return false;
+  if (daysSinceLastTouch < idleThreshold) return false;
 
   // Future next action date suppresses stale
   if (nextActionDate) {

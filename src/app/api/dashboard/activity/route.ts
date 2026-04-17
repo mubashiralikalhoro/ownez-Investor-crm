@@ -7,8 +7,8 @@ import {
   getAllProspects,
 } from "@/services/prospects";
 import { fetchZohoOrgUsers } from "@/lib/zoho/oauth";
-import { resolveAppRoleFromZohoCrmUser } from "@/lib/app-role";
-import type { RecentActivityEntry, User, UserRole, ActivityType } from "@/lib/types";
+import { getAuthorizedRoleMap } from "@/services/app-users";
+import type { RecentActivityEntry, User, ActivityType } from "@/lib/types";
 
 /**
  * GET /api/dashboard/activity
@@ -176,18 +176,20 @@ export async function GET(_request: NextRequest) {
 
     const activities = allEntries.slice(0, 20);
 
-    // ── Build rep list from Zoho org users, filtered to env-allowed roles ──
-    // Mirrors the admin page's source so the dropdown shows real reps only.
+    // ── Build rep list from Zoho org users, filtered to authorized app users ──
+    // Mirrors the admin page's source so the dropdown shows only users who
+    // can actually log in (bootstrap admins + active override rows).
+    const roleMap = await getAuthorizedRoleMap();
     const users: User[] = [];
     for (const u of orgUsers) {
-      const role = resolveAppRoleFromZohoCrmUser(u);
-      if (role === null) continue; // skip users outside env allowlist
+      const role = roleMap.get(u.id);
+      if (!role) continue;
 
       users.push({
         id:       u.id,
         username: u.email ?? u.full_name ?? u.id,
         fullName: u.full_name ?? u.email ?? u.id,
-        role:     role as UserRole,
+        role,
         isActive: true,
         passwordHash: "",
       });

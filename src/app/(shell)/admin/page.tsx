@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
-import { getDataService } from "@/data";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { UsersTab } from "@/components/admin/users-tab";
 import { LeadSourcesTab } from "@/components/admin/lead-sources-tab";
@@ -9,18 +8,18 @@ import { SystemSettingsTab } from "@/components/admin/system-settings-tab";
 import { listAdminUsers } from "@/services/app-users";
 import { listAllLeadSources } from "@/services/lead-sources";
 import { getAppSettings } from "@/services/app-settings";
+import { listThresholds } from "@/services/pipeline-thresholds";
 
 export default async function AdminPage() {
   const session = await getSession();
   if (!session) redirect("/login?next=/admin");
   if (!session.permissions.canAccessAdmin) redirect("/");
 
-  const ds = await getDataService();
   const [adminUsers, leadSources, settings, pipelineStages] = await Promise.all([
     listAdminUsers(session.accessToken, session.apiDomain, session.userId),
     listAllLeadSources(),
     getAppSettings(),
-    ds.getPipelineStageConfigs(),
+    listThresholds(),
   ]);
 
   return (

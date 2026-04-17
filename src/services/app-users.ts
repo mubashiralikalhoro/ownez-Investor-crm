@@ -1,83 +1,112 @@
 /**
- * App-user service — merges live Zoho org users with per-user permission
- * overrides stored in Prisma.
+ * App-user service — merges the env-defined bootstrap admin list with
+ * explicitly-added users stored as `UserPermission` rows in Prisma.
  *
- * Zoho remains the authoritative user directory. The `UserPermission` table
- * only stores *overrides* and the per-user `active` flag; a user who has
- * never been touched in Admin > Users has no row and gets the role-based
- * default from `src/lib/permissions.ts`.
+ * Zoho remains the authoritative user directory (names, emails, Zoho role),
+ * but **authorization to log in** is gated by one of two mechanisms:
+ *
+ *   1. The user's Zoho id is in `BOOTSTRAP_ADMIN_USER_IDS` → auto-allowed
+ *      as admin, with role defaults. No Prisma row needed.
+ *   2. A `UserPermission` row exists with `active=true` → allowed with the
+ *      role + permissions encoded in that row.
+ *
+ * Any other Zoho org user cannot log in until an admin adds them through
+ * the Admin > Users > Add user flow.
  */
 
-import { fetchZohoOrgUsers } from "@/lib/zoho/oauth";
-import { resolveAppRoleFromZohoCrmUser } from "@/lib/app-role";
+import { fetchZohoOrgUsers, type ZohoCrmUser, type ZohoOrgUser } from "@/lib/zoho/oauth";
+import { isBootstrapAdmin, listBootstrapAdminIds } from "@/lib/app-role";
 import { ROLE_DEFAULTS, effectivePermissions, type FullPermissions } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import type { UserPermissions, UserRole } from "@/lib/types";
 
 export type AdminUserRow = {
-  zohoUserId:      string;
-  email:           string | null;
-  fullName:        string;
-  zohoRoleId:      string | null;
-  zohoRoleName:    string | null;
-  envRole:         UserRole;           // Role derived from env allowlist
-  effectiveRole:   UserRole;           // Role actually in effect (override or env)
-  active:          boolean;
-  hasOverride:     boolean;
-  permissions:     FullPermissions;    // Merged (override + role default)
-  zohoStatus:      string | null;
+  zohoUserId:    string;
+  email:         string | null;
+  fullName:      string;
+  zohoRoleId:    string | null;
+  zohoRoleName:  string | null;
+  /** How this user is authorized — drives which controls the UI enables. */
+  source:        "env" | "override";
+  effectiveRole: UserRole;
+  active:        boolean;
+  hasOverride:   boolean;
+  permissions:   FullPermissions;
+  zohoStatus:    string | null;
+};
+
+export type AvailableUserRow = {
+  zohoUserId:   string;
+  email:        string | null;
+  fullName:     string;
+  zohoRoleId:   string | null;
+  zohoRoleName: string | null;
+  zohoStatus:   string | null;
 };
 
 /**
- * Build the Admin > Users tab's list.
- *
- * - Pulls every user from the Zoho org (`/users?type=AllUsers`).
- * - Filters out users whose current Zoho role is NOT in the env allowlist
- *   (Q2 decision — "hide stale users entirely").
- * - Filters out the currently-logged-in user (Q3 — "don't show me myself").
- * - Merges each row with any `UserPermission` override to produce the
- *   effective role + permissions shown in the UI.
+ * Admin > Users listing. Shows only users who can currently log in:
+ *   - Bootstrap admins from env (role fixed, controls disabled in UI).
+ *   - Users with a `UserPermission` row where `active === true`.
+ * Inactive override rows are hidden — deleted-then-not-re-added users
+ * disappear from the list entirely.
  */
 export async function listAdminUsers(
-  accessToken: string,
-  apiDomain:   string,
+  accessToken:       string,
+  apiDomain:         string,
   excludeZohoUserId: string,
 ): Promise<AdminUserRow[]> {
   const [zohoUsers, overrides] = await Promise.all([
     fetchZohoOrgUsers(accessToken, apiDomain),
-    prisma.userPermission.findMany(),
+    prisma.userPermission.findMany({ where: { active: true } }),
   ]);
 
-  const byId = new Map(overrides.map(o => [o.zohoUserId, o]));
+  const overrideById = new Map(overrides.map((o) => [o.zohoUserId, o]));
+  const bootstrapIds = new Set(listBootstrapAdminIds());
+  const byZohoId     = new Map(zohoUsers.map((u) => [u.id, u]));
 
   const rows: AdminUserRow[] = [];
-  for (const u of zohoUsers) {
-    if (u.id === excludeZohoUserId) continue; // hide self
 
-    const envRole = resolveAppRoleFromZohoCrmUser(u);
-    if (envRole === null) continue; // hide stale / unmapped roles
-
-    const override      = byId.get(u.id) ?? null;
-    const effectiveRole = (override?.role as UserRole | undefined) ?? envRole;
-    const active        = override?.active ?? true;
-    const permissions   = effectivePermissions(effectiveRole, override);
-
+  // Bootstrap admins first.
+  for (const id of bootstrapIds) {
+    if (id === excludeZohoUserId) continue;
+    const u = byZohoId.get(id);
     rows.push({
-      zohoUserId:    u.id,
-      email:         u.email ?? null,
-      fullName:      u.full_name ?? u.email ?? u.id,
-      zohoRoleId:    u.role?.id  ?? null,
-      zohoRoleName:  u.role?.name ?? null,
-      envRole,
-      effectiveRole,
-      active,
-      hasOverride:   !!override,
-      permissions,
-      zohoStatus:    u.status ?? null,
+      zohoUserId:    id,
+      email:         u?.email ?? null,
+      fullName:      u?.full_name ?? u?.email ?? id,
+      zohoRoleId:    u?.role?.id   ?? null,
+      zohoRoleName:  u?.role?.name ?? null,
+      source:        "env",
+      effectiveRole: "admin",
+      active:        true,
+      hasOverride:   false,
+      permissions:   ROLE_DEFAULTS.admin,
+      zohoStatus:    u?.status ?? null,
     });
   }
 
-  // Stable sort: admins first, then name ASC.
+  // Active override rows — skip anyone also in the env list to avoid duplicates.
+  for (const ov of overrides) {
+    if (ov.zohoUserId === excludeZohoUserId) continue;
+    if (bootstrapIds.has(ov.zohoUserId))     continue;
+    const u             = byZohoId.get(ov.zohoUserId);
+    const effectiveRole = (ov.role as UserRole) || "rep";
+    rows.push({
+      zohoUserId:    ov.zohoUserId,
+      email:         u?.email ?? null,
+      fullName:      u?.full_name ?? u?.email ?? ov.zohoUserId,
+      zohoRoleId:    u?.role?.id   ?? null,
+      zohoRoleName:  u?.role?.name ?? null,
+      source:        "override",
+      effectiveRole,
+      active:        true,
+      hasOverride:   true,
+      permissions:   effectivePermissions(effectiveRole, overrideById.get(ov.zohoUserId)),
+      zohoStatus:    u?.status ?? null,
+    });
+  }
+
   rows.sort((a, b) => {
     if (a.effectiveRole !== b.effectiveRole) {
       return a.effectiveRole === "admin" ? -1 : b.effectiveRole === "admin" ? 1 : 0;
@@ -89,39 +118,101 @@ export async function listAdminUsers(
 }
 
 /**
- * Resolve the effective role + permissions for a single user at login time.
- *
- * Returns `null` when an override exists with `active = false` — the auth
- * flow uses this to reject the login with an "access_revoked" error.
+ * Candidate Zoho users for the "Add user" dialog — everyone in the org who
+ * isn't already authorized and isn't the current admin.
  */
-export async function getEffectiveUserState(
-  zohoUserId: string,
-  envRole:    UserRole,
-): Promise<{ role: UserRole; permissions: FullPermissions; active: boolean } | null> {
-  const override = await prisma.userPermission.findUnique({ where: { zohoUserId } });
+export async function listAvailableUsers(
+  accessToken:       string,
+  apiDomain:         string,
+  excludeZohoUserId: string,
+): Promise<AvailableUserRow[]> {
+  // Only active overrides are "taken" — users with `active=false` rows have
+  // been soft-deleted and should be selectable again through the Add dialog.
+  const [zohoUsers, activeOverrides] = await Promise.all([
+    fetchZohoOrgUsers(accessToken, apiDomain),
+    prisma.userPermission.findMany({
+      where:  { active: true },
+      select: { zohoUserId: true },
+    }),
+  ]);
 
-  if (!override) {
-    return {
-      role:        envRole,
-      permissions: ROLE_DEFAULTS[envRole],
-      active:      true,
-    };
+  const takenIds = new Set<string>([
+    excludeZohoUserId,
+    ...listBootstrapAdminIds(),
+    ...activeOverrides.map((o) => o.zohoUserId),
+  ]);
+
+  return zohoUsers
+    .filter((u) => !takenIds.has(u.id))
+    .map((u) => ({
+      zohoUserId:   u.id,
+      email:        u.email ?? null,
+      fullName:     u.full_name ?? u.email ?? u.id,
+      zohoRoleId:   u.role?.id   ?? null,
+      zohoRoleName: u.role?.name ?? null,
+      zohoStatus:   (u as ZohoOrgUser).status ?? null,
+    }))
+    .sort((a, b) => a.fullName.localeCompare(b.fullName));
+}
+
+/**
+ * Resolve authorization for a Zoho user attempting to log in.
+ *
+ * Return values:
+ *   - `{ role, permissions, source: "env" }`      — bootstrap admin
+ *   - `{ role, permissions, source: "override" }` — active override row
+ *   - `"revoked"`   — override row exists but active=false
+ *   - `"not_authorized"` — no env entry and no override row
+ */
+export type AuthorizedUser = {
+  role:        UserRole;
+  permissions: FullPermissions;
+  source:      "env" | "override";
+};
+
+export async function resolveAuthorizedUser(
+  zohoUser: ZohoCrmUser | null,
+): Promise<AuthorizedUser | "revoked" | "not_authorized"> {
+  const zohoUserId = zohoUser?.id?.trim();
+  if (!zohoUserId) return "not_authorized";
+
+  if (isBootstrapAdmin(zohoUserId)) {
+    return { role: "admin", permissions: ROLE_DEFAULTS.admin, source: "env" };
   }
-  if (override.active === false) return null;
 
-  const effectiveRole = (override.role as UserRole) || envRole;
+  const override = await prisma.userPermission.findUnique({ where: { zohoUserId } });
+  if (!override) return "not_authorized";
+  if (override.active === false) return "revoked";
+
+  const role = (override.role as UserRole) || "rep";
   return {
-    role:        effectiveRole,
-    permissions: effectivePermissions(effectiveRole, override),
-    active:      true,
+    role,
+    permissions: effectivePermissions(role, override),
+    source:      "override",
   };
 }
 
 /**
- * Upsert a per-user permission override. The admin UI PUTs the full state
- * for a user (role + active + every permission flag) and this function
- * persists it.
+ * Lightweight map of all Zoho user IDs currently authorized to log in,
+ * keyed to their effective role. Used by the user-picker endpoints that
+ * only need to know "can this user log in, and as what role?".
  */
+export async function getAuthorizedRoleMap(): Promise<Map<string, UserRole>> {
+  const activeOverrides = await prisma.userPermission.findMany({
+    where:  { active: true },
+    select: { zohoUserId: true, role: true },
+  });
+  const map = new Map<string, UserRole>();
+  for (const id of listBootstrapAdminIds()) {
+    map.set(id, "admin");
+  }
+  for (const row of activeOverrides) {
+    map.set(row.zohoUserId, (row.role as UserRole) || "rep");
+  }
+  return map;
+}
+
+/** Upsert a per-user permission override. */
 export async function upsertUserPermissionOverride(
   zohoUserId: string,
   input: {
@@ -143,5 +234,25 @@ export async function upsertUserPermissionOverride(
     where:  { zohoUserId },
     create: { zohoUserId, ...data },
     update: data,
+  });
+}
+
+/**
+ * Add a user via the admin dialog. Refuses to touch bootstrap-admin env
+ * users (the override row would be inert, but creating it would be
+ * confusing). For a previously-removed user (active=false row), this
+ * flips them back to active with the chosen role and fresh role defaults.
+ */
+export async function addUserFromZoho(
+  zohoUserId: string,
+  role:       UserRole,
+) {
+  if (isBootstrapAdmin(zohoUserId)) {
+    throw new Error("User is already authorized via BOOTSTRAP_ADMIN_USER_IDS.");
+  }
+  return upsertUserPermissionOverride(zohoUserId, {
+    role,
+    active:      true,
+    permissions: {}, // pure role defaults — admin can refine after the fact
   });
 }

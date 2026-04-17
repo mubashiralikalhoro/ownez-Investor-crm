@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { fetchZohoOrgUsers } from "@/lib/zoho/oauth";
-import { resolveAppRoleFromZohoCrmUser } from "@/lib/app-role";
+import { getAuthorizedRoleMap } from "@/services/app-users";
 
 /**
  * GET /api/users
  *
- * Returns a lightweight list of Zoho org users (id + name) whose role is in
- * the env allowlist. Used by the pipeline Owner filter dropdown and anywhere
- * else a user-picker is needed.
+ * Returns a lightweight list of Zoho org users (id + name) who are
+ * currently authorized to log in (bootstrap admins + active override rows).
+ * Used by the pipeline Owner filter dropdown and anywhere else a
+ * user-picker is needed.
  *
  * Auth-gated (any authenticated user), NOT admin-only.
  */
@@ -19,10 +20,13 @@ export async function GET(_request: NextRequest) {
   }
 
   try {
-    const zohoUsers = await fetchZohoOrgUsers(session.accessToken, session.apiDomain);
+    const [zohoUsers, roleMap] = await Promise.all([
+      fetchZohoOrgUsers(session.accessToken, session.apiDomain),
+      getAuthorizedRoleMap(),
+    ]);
 
     const data = zohoUsers
-      .filter((u) => resolveAppRoleFromZohoCrmUser(u) !== null)
+      .filter((u) => roleMap.has(u.id))
       .map((u) => ({ id: u.id, name: u.full_name ?? u.email ?? u.id }))
       .sort((a, b) => a.name.localeCompare(b.name));
 
