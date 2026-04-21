@@ -23,7 +23,7 @@ export function InlineQuickLog({ person, onDone }: InlineQuickLogProps) {
   const [phase, setPhase] = useState<"log" | "next-action" | "success">("log");
 
   // Next Action Prompt state
-  const [promptActionType, setPromptActionType] = useState(person.nextActionType ?? "follow_up");
+  const [promptActionType, setPromptActionType] = useState(person.nextActionType ?? "Follow-up");
   const [promptDetail, setPromptDetail] = useState("");
   const [promptDate, setPromptDate] = useState(person.nextActionDate ?? "");
 
@@ -55,7 +55,7 @@ export function InlineQuickLog({ person, onDone }: InlineQuickLogProps) {
 
       setText("");
       setPhase("next-action");
-      setPromptActionType(person.nextActionType ?? "follow_up");
+      setPromptActionType(person.nextActionType ?? "Follow-up");
       setPromptDetail("");
       setPromptDate(person.nextActionDate ?? "");
     } finally {

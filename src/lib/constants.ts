@@ -54,14 +54,17 @@ export const TOUCH_ACTIVITY_TYPES: ActivityType[] = [
   "document_received",
 ];
 
+/**
+ * Matches the Zoho `Activity_Log.Commitment_Type` picklist exactly — `key` is
+ * the Zoho API value we write verbatim, `label` is the display in our UI.
+ */
 export const NEXT_ACTION_TYPES: { key: string; label: string }[] = [
-  { key: "follow_up", label: "Follow Up" },
-  { key: "schedule_meeting", label: "Schedule Meeting" },
-  { key: "send_document", label: "Send Document" },
-  { key: "request_info", label: "Request Info" },
-  { key: "make_introduction", label: "Make Introduction" },
-  { key: "internal_review", label: "Internal Review" },
-  { key: "other", label: "Other" },
+  { key: "Call",      label: "Call" },
+  { key: "Email",     label: "Email" },
+  { key: "Meeting",   label: "Meeting" },
+  { key: "Follow-up", label: "Follow-up" },
+  { key: "Document",  label: "Document" },
+  { key: "Other",     label: "Other" },
 ];
 
 export const LEAD_SOURCES: { key: string; label: string }[] = [

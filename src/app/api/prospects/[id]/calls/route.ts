@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
-import { getProspectCalls, createProspectCall } from "@/services/prospects";
+import { getProspectCalls } from "@/services/prospects";
+import { logTouchActivity } from "@/services/activity-log";
+import { checkProspectAccess } from "@/lib/prospect-access";
 
 export async function GET(
   _request: NextRequest,
@@ -10,6 +12,9 @@ export async function GET(
   if (!session) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
   const { id } = await params;
+
+  const denied = await checkProspectAccess(session, id);
+  if (denied) return denied;
 
   try {
     const calls = await getProspectCalls(session.accessToken, id);
@@ -23,8 +28,7 @@ export async function GET(
 
 /**
  * POST /api/prospects/[id]/calls
- * Body: { subject?: string, description?: string, callType?: "Outbound"|"Inbound"|"Missed", status?: "Completed"|"Scheduled" }
- * At least one of subject or description is required.
+ * Body: { description: string, outcome?: "connected"|"attempted", date?: string (YYYY-MM-DD), fulfillsCommitmentId?: string }
  */
 export async function POST(
   request: NextRequest,
@@ -35,11 +39,14 @@ export async function POST(
 
   const { id } = await params;
 
+  const denied = await checkProspectAccess(session, id);
+  if (denied) return denied;
+
   let body: {
-    subject?:     string;
-    description?: string;
-    callType?:    "Outbound" | "Inbound" | "Missed";
-    status?:      "Completed" | "Scheduled";
+    description?:         string;
+    outcome?:             "connected" | "attempted";
+    date?:                string;
+    fulfillsCommitmentId?: string;
   };
   try {
     body = (await request.json()) as typeof body;
@@ -47,22 +54,22 @@ export async function POST(
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const subject     = body.subject?.trim();
   const description = body.description?.trim();
-  if (!subject && !description) {
-    return NextResponse.json({ error: "subject or description is required." }, { status: 422 });
+  if (!description) {
+    return NextResponse.json({ error: "description is required." }, { status: 422 });
   }
 
   try {
-    const callId = await createProspectCall(session.accessToken, id, {
-      subject:     subject || description!.slice(0, 80),
-      description: description,
-      callType:    body.callType,
-      status:      body.status,
+    const activityId = await logTouchActivity(session.accessToken, id, {
+      type:                 "call",
+      description,
+      outcome:              body.outcome ?? null,
+      date:                 body.date,
+      fulfillsCommitmentId: body.fulfillsCommitmentId ?? null,
     });
-    return NextResponse.json({ data: { id: callId } }, { status: 201 });
+    return NextResponse.json({ data: { id: activityId } }, { status: 201 });
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Failed to create call.";
+    const message = e instanceof Error ? e.message : "Failed to log call.";
     const status  = message.includes("(401)") ? 401 : 500;
     return NextResponse.json({ error: message }, { status });
   }

@@ -50,14 +50,16 @@ export function computeIsStale(
 export function computeIsOverdue(
   stage: PipelineStage | null,
   nextActionDate: string | null,
-  today?: string
+  today?: string,
+  hasOverdueOpenCommitment?: boolean,
 ): boolean {
   if (!stage || INACTIVE_STAGES.includes(stage)) return false;
-  if (!nextActionDate) return false;
 
+  // Activity_Log-based flag takes precedence when available.
+  if (hasOverdueOpenCommitment !== undefined) return hasOverdueOpenCommitment;
+
+  if (!nextActionDate) return false;
   const todayDate = new Date(today ?? getTodayCT());
   const nextDate = new Date(nextActionDate);
-
-  // Overdue only if next action date is strictly before today
   return nextDate < todayDate;
 }

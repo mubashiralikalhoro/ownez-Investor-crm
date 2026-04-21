@@ -20,7 +20,7 @@ import { DateQuickPick } from "@/components/ui/date-quick-pick";
 import { CreateProspectSheet } from "./create-prospect-sheet";
 import {
   logActivity,
-  updateNextAction,
+  openCommitment,
   setProspectStage,
   STAGE_ENUM_TO_ZOHO,
 } from "@/lib/activity-dispatch";
@@ -63,7 +63,7 @@ function LogActivitySheet({ prospects }: { prospects: PersonWithComputed[] }) {
   const [showPrompt, setShowPrompt] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const [promptActionType, setPromptActionType] = useState<string>("follow_up");
+  const [promptActionType, setPromptActionType] = useState<string>("Follow-up");
   const [promptDetail, setPromptDetail] = useState("");
   const [promptDate, setPromptDate] = useState("");
   // Target stage the user wants to move the prospect to from the What's next?
@@ -148,7 +148,7 @@ function LogActivitySheet({ prospects }: { prospects: PersonWithComputed[] }) {
 
       setText("");
       // Set prompt state — detail starts empty, old value shown as gray placeholder
-      setPromptActionType(selectedPerson.nextActionType ?? "follow_up");
+      setPromptActionType(selectedPerson.nextActionType ?? "Follow-up");
       setPromptDetail("");
       setPromptDate(selectedPerson.nextActionDate ?? "");
       // Default the stage dropdown to the prospect's current stage (= no change).
@@ -177,8 +177,10 @@ function LogActivitySheet({ prospects }: { prospects: PersonWithComputed[] }) {
       "";
 
     try {
-      // Save next-action first.
-      await updateNextAction(selectedPerson.id, detailText, promptDate || null);
+      // Open a commitment if a date is provided; otherwise skip commitment tracking.
+      if (detailText && promptDate) {
+        await openCommitment(selectedPerson.id, promptActionType, detailText, promptDate);
+      }
       // Then, if the user picked a different stage, write it.
       if (targetStage && targetStage !== currentZohoStage) {
         await setProspectStage(selectedPerson.id, targetStage);

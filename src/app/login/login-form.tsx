@@ -9,6 +9,8 @@ function LoginFormInner() {
   const searchParams = useSearchParams();
   const nextPath   = searchParams.get("next") || "/";
   const oauthError = searchParams.get("error");
+  const oauthUserId    = searchParams.get("user_id");
+  const oauthUserEmail = searchParams.get("user_email");
 
   const [loading,  setLoading]  = useState(false);
   const [checking, setChecking] = useState(true);
@@ -45,15 +47,23 @@ function LoginFormInner() {
   return (
     <div className="w-full space-y-3">
       {oauthError ? (
-        <p className="rounded-lg border border-alert-red/25 bg-alert-red-light px-3 py-2 text-center text-xs text-alert-red">
-          {(() => {
-            try {
-              return decodeURIComponent(oauthError.replace(/\+/g, " "));
-            } catch {
-              return oauthError;
-            }
-          })()}
-        </p>
+        <div className="rounded-lg border border-alert-red/25 bg-alert-red-light px-3 py-2 text-center text-xs text-alert-red space-y-1">
+          <p>
+            {(() => {
+              try {
+                return decodeURIComponent(oauthError.replace(/\+/g, " "));
+              } catch {
+                return oauthError;
+              }
+            })()}
+          </p>
+          {oauthUserId ? (
+            <p className="font-mono text-[11px] text-alert-red/80">
+              User ID: {oauthUserId}
+              {oauthUserEmail ? ` (${oauthUserEmail})` : ""}
+            </p>
+          ) : null}
+        </div>
       ) : null}
       <button
         type="button"

@@ -33,7 +33,12 @@ export function todayISO(): string {
 
 export function toPersonWithComputed(p: ZohoProspect, today: string): PersonWithComputed {
   const stage = ZOHO_TO_STAGE[p.Pipeline_Stage ?? ""] ?? null;
-  const isOverdue = !!(p.Next_Action_Date && p.Next_Action_Date < today);
+  // Prefer the Activity_Log-derived flag when available; fall back to Next_Action_Date for
+  // prospects that predate the commitment lifecycle cutover.
+  const isOverdue =
+    p.hasOverdueOpenCommitment !== undefined
+      ? p.hasOverdueOpenCommitment
+      : !!(p.Next_Action_Date && p.Next_Action_Date < today);
 
   return {
     id: p.id,

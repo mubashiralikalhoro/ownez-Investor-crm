@@ -1,15 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { getDashboardQueueProspects } from "@/services/prospects";
+import { getOverdueProspectIdSet } from "@/services/activity-log";
 
 /**
  * GET /api/dashboard/queue
  *
- * Custom Zoho query for the dashboard action queue.
- * Excludes Dead / Lost and Funded prospects at the Zoho level.
- * Sorts by Next_Action_Date ASC so overdue records always appear first.
- * Pages through ALL results — no missing overdue prospects regardless of
- * total pipeline size.
+ * Returns active prospects enriched with `hasOverdueOpenCommitment` stamped from
+ * Activity_Log (one org-wide search run in parallel with the prospect fetch).
  */
 export async function GET(_request: NextRequest) {
   const session = await getSession();
@@ -18,7 +16,16 @@ export async function GET(_request: NextRequest) {
   }
 
   try {
-    const data = await getDashboardQueueProspects(session.accessToken);
+    const [prospects, overdueIds] = await Promise.all([
+      getDashboardQueueProspects(session.accessToken),
+      getOverdueProspectIdSet(session.accessToken).catch(() => new Set<string>()),
+    ]);
+
+    const data = prospects.map((p) => ({
+      ...p,
+      hasOverdueOpenCommitment: overdueIds.has(p.id),
+    }));
+
     return NextResponse.json({ data });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to fetch dashboard queue.";

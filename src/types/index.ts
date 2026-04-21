@@ -27,6 +27,8 @@ export type ZohoProspect = {
   Referrer1: { id: string; name: string } | null;
   /** Lookup → Prospect. Another Prospect-module person related to this one. */
   Related_Contact: { id: string; name: string } | null;
+  /** Stamped server-side from Activity_Log: true iff ≥1 open Commitment_Set is past-due. */
+  hasOverdueOpenCommitment?: boolean;
 };
 
 /** Pagination info returned alongside every list response. */
@@ -152,6 +154,8 @@ export type ZohoTimelineEvent = {
     /** Actual Zoho shape: _value.new / _value.old */
     _value: { new: string | null; old: string | null };
   }[] | null;
+  /** Set when this event was synthesized from an Activity_Log row (not Zoho's built-in timeline). */
+  _activityLog?: ZohoActivityLog;
 };
 
 /** Email record from GET /Prospect/{id}/Emails. Response key is "Emails" (not "data"). */
@@ -242,6 +246,44 @@ export type ZohoFundedRecord = {
   Name: string | null;
   Email: string | null;
   Owner: { name: string; id: string; email: string } | null;
+};
+
+// ─── Zoho CRM — Activity_Log module ──────────────────────────────────────────
+
+/**
+ * A row in the custom `Activity_Log` Zoho module. Two shapes exist:
+ *
+ * 1. Touch rows — `Activity_Type` is Call/Email/Meeting/Note/etc.; `Description`
+ *    holds the body, `Outcome` is set for outreach types, all `Commitment_*`
+ *    fields are null. `Fulfills_Commitment` is populated only when this
+ *    activity closed out a prior commitment via the "Done" path.
+ *
+ * 2. Commitment rows — `Activity_Type = Commitment_Set`; `Commitment_Type`,
+ *    `Commitment_Detail`, `Commitment_Due_Date` carry the intent, and
+ *    `Commitment_Status` transitions `open` → `fulfilled | superseded | cancelled`
+ *    exactly once. `Commitment_Closed_Date` is null while open.
+ */
+export type ZohoCommitmentStatus = "open" | "fulfilled" | "superseded" | "cancelled";
+
+export type ZohoActivityLog = {
+  id:                     string;
+  Name:                   string | null;
+  Activity_Type:          string;            // picklist API value, exact
+  Activity_Date:          string;            // "YYYY-MM-DD"
+  Description:            string | null;
+  Outcome:                "connected" | "attempted" | null;
+  Prospect:               { id: string; name?: string } | null;
+  Owner:                  ZohoOwner | null;
+  Fulfills_Commitment:    { id: string; name?: string } | null;
+  Commitment_Type:        string | null;     // matches NEXT_ACTION_TYPES keys
+  Commitment_Detail:      string | null;
+  Commitment_Due_Date:    string | null;
+  Commitment_Status:      ZohoCommitmentStatus | null;
+  Commitment_Closed_Date: string | null;
+  Created_Time:           string | null;
+  Modified_Time:          string | null;
+  Created_By:             { id: string; name: string; email?: string } | null;
+  Modified_By:            { id: string; name: string; email?: string } | null;
 };
 
 /** Server-side filter params passed through to Zoho CRM. */

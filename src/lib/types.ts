@@ -15,14 +15,17 @@ export type PipelineStage =
   | "nurture"
   | "dead";
 
+/**
+ * Matches the Zoho `Activity_Log.Commitment_Type` picklist values verbatim —
+ * writes round-trip with no mapping. Keep these exact.
+ */
 export type NextActionType =
-  | "follow_up"
-  | "schedule_meeting"
-  | "send_document"
-  | "request_info"
-  | "make_introduction"
-  | "internal_review"
-  | "other";
+  | "Call"
+  | "Email"
+  | "Meeting"
+  | "Follow-up"
+  | "Document"
+  | "Other";
 
 export type LeadSource =
   | "velocis_network"

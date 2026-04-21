@@ -76,6 +76,8 @@ export async function POST(request: Request) {
       {
         error:             "access_revoked",
         error_description: "Your access to this app has been revoked by an administrator.",
+        user_id:           user?.id ?? null,
+        user_email:        user?.email ?? null,
       },
       { status: 403 }
     );
@@ -85,6 +87,8 @@ export async function POST(request: Request) {
       {
         error:             "not_authorized",
         error_description: "Your Zoho user is not authorized to access this app. Ask an admin to add you.",
+        user_id:           user?.id ?? null,
+        user_email:        user?.email ?? null,
       },
       { status: 403 }
     );

@@ -8,7 +8,7 @@ import {
   PhoneCall, PhoneIncoming, PhoneOutgoing, CalendarDays, FileText,
   Pencil, ArrowRight, Bot, Paperclip, CheckSquare, Clock,
   CheckCircle2, CircleDot, TrendingUp, DollarSign, User,
-  X, Trash2, Upload, Check, Plus,
+  X, Trash2, Upload, Check, Plus, MessageSquare,
 } from "lucide-react";
 import { ProspectDetailSkeleton } from "@/components/prospect/prospect-skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -25,10 +25,13 @@ import {
 import type {
   ZohoProspectDetail, ZohoNote, ZohoTimelineEvent, ZohoEmail,
   ZohoCall, ZohoEvent, ZohoStageHistory, ZohoAttachment, ZohoTask, ZohoFundedRecord,
+  ZohoActivityLog,
 } from "@/types";
 import { getAppUserProfile } from "@/lib/auth-storage";
 import { SetLastViewed } from "@/components/set-last-viewed";
 import { ZOHO_TO_STAGE } from "@/lib/zoho-map";
+import { NEXT_ACTION_TYPES } from "@/lib/constants";
+import { DateQuickPick } from "@/components/ui/date-quick-pick";
 
 // ─── Auth helpers ─────────────────────────────────────────────────────────────
 
@@ -495,7 +498,7 @@ function InlineProspectLookupField({
 
 // ─── Unified Activity ─────────────────────────────────────────────────────────
 
-type ActivityKind = "call" | "email" | "meeting" | "note" | "update" | "stage_change" | "automation";
+type ActivityKind = "call" | "email" | "meeting" | "note" | "update" | "stage_change" | "automation" | "commitment" | "activity_log_touch";
 
 interface UnifiedActivity {
   id: string;
@@ -506,6 +509,7 @@ interface UnifiedActivity {
   event?: ZohoEvent;
   note?: ZohoNote;
   timeline?: ZohoTimelineEvent;
+  activityLog?: ZohoActivityLog;
 }
 
 function buildUnifiedTimeline(
@@ -515,6 +519,21 @@ function buildUnifiedTimeline(
   const items: UnifiedActivity[] = [];
 
   timeline.forEach((t) => {
+    if (t._activityLog) {
+      const al = t._activityLog;
+      const isCommitment = al.Activity_Type === "Commitment_Set";
+      const typeToKind: Record<string, ActivityKind> = {
+        Call: "call", Email: "email", Meeting: "meeting", Note: "note",
+      };
+      const kind: ActivityKind = isCommitment
+        ? "commitment"
+        : (typeToKind[al.Activity_Type] ?? "activity_log_touch");
+      const sortTime = al.Created_Time
+        ? new Date(al.Created_Time).getTime()
+        : new Date(t.audited_time).getTime();
+      items.push({ id: `tl-${t.id}`, kind, sortTime, timeline: t, activityLog: al });
+      return;
+    }
     const isStage = t.field_history?.some((f) => f.api_name === "Pipeline_Stage");
     const isAuto = t.source === "custom_function" || t.source === "workflow";
     const kind: ActivityKind = isStage ? "stage_change" : isAuto ? "automation" : "update";
@@ -541,10 +560,12 @@ function buildUnifiedTimeline(
 const KIND_COLOR: Record<ActivityKind, string> = {
   call: "#2563eb", email: "#7c3aed", meeting: "#0891b2", note: "#6b7280",
   update: "#1e3a5f", stage_change: "#f59e0b", automation: "#9ca3af",
+  commitment: "#d97706", activity_log_touch: "#059669",
 };
 const KIND_LABEL: Record<ActivityKind, string> = {
   call: "Call", email: "Email", meeting: "Meeting", note: "Note",
   update: "Updated", stage_change: "Stage Change", automation: "Automation",
+  commitment: "Commitment", activity_log_touch: "Activity",
 };
 const SOURCE_META: Record<string, { label: string; pill: string }> = {
   crm_ui: { label: "CRM UI", pill: "bg-navy/10 text-navy" },
@@ -932,6 +953,102 @@ function ProspectNextActionBar({
   const isStale = (prospect.Days_Since_Last_Touch ?? 0) > 14;
   const isUrgent = isOverdue || isStale;
 
+  const [editing,    setEditing]    = useState(false);
+  const [actionType, setActionType] = useState("Follow-up");
+  const [detail,     setDetail]     = useState("");
+  const [date,       setDate]       = useState("");
+  const [saving,     setSaving]     = useState(false);
+  const [error,      setError]      = useState<string | null>(null);
+
+  function startEdit() {
+    setActionType("Follow-up");
+    setDetail("");
+    setDate(prospect.Next_Action_Date ?? "");
+    setError(null);
+    setEditing(true);
+  }
+
+  async function handleSave() {
+    const effectiveDetail = detail.trim() || prospect.Next_Action || "";
+    if (!effectiveDetail || !date) { setError("Detail and date are required."); return; }
+    setSaving(true);
+    setError(null);
+    try {
+      // 1. Supersede any currently-open commitments.
+      const openRes = await makeRequest(`/api/prospects/${prospect.id}/commitments`);
+      if (openRes.ok) {
+        const { data: open } = await openRes.json() as { data: Array<{ id: string }> };
+        await Promise.all(
+          (open ?? []).map(c =>
+            makeRequest(`/api/prospects/${prospect.id}/commitments/${c.id}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ status: "superseded" }),
+            })
+          )
+        );
+      }
+      // 2. Open a new commitment — side-effect: updates Prospect.Next_Action + Next_Action_Date.
+      const createRes = await makeRequest(`/api/prospects/${prospect.id}/commitments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: actionType, detail: effectiveDetail, dueDate: date }),
+      });
+      if (!createRes.ok) {
+        const body = await createRes.json().catch(() => ({})) as { error?: string };
+        throw new Error(body.error ?? "Failed to save next action.");
+      }
+      // 3. Sync local state with the values we just persisted.
+      await onUpdate({ Next_Action: effectiveDetail, Next_Action_Date: date });
+      setEditing(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (editing) {
+    return (
+      <div className="rounded-lg border border-gold/30 bg-gold/5 px-3 py-3 space-y-2">
+        <p className="text-[10px] font-medium uppercase tracking-wider text-gold">Edit Next Action</p>
+        <div className="flex items-center gap-2 flex-wrap">
+          <select
+            value={actionType}
+            onChange={e => setActionType(e.target.value)}
+            className="rounded-md border bg-card px-2 py-1.5 text-xs"
+          >
+            {NEXT_ACTION_TYPES.map(t => (
+              <option key={t.key} value={t.key}>{t.label}</option>
+            ))}
+          </select>
+          <input
+            value={detail}
+            onChange={e => setDetail(e.target.value)}
+            placeholder={prospect.Next_Action || "What needs to happen?"}
+            className="flex-1 min-w-[200px] rounded-md border bg-card px-2.5 py-1.5 text-xs focus:outline-none focus:border-gold"
+            onKeyDown={e => { if (e.key === "Enter") handleSave(); if (e.key === "Escape") setEditing(false); }}
+            autoFocus
+          />
+        </div>
+        <DateQuickPick value={date} onChange={setDate} />
+        {error && <p className="text-xs text-alert-red">{error}</p>}
+        <div className="flex items-center justify-end gap-2">
+          <button onClick={() => setEditing(false)} className="text-xs text-muted-foreground hover:text-navy">
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="rounded-full bg-gold px-4 py-1.5 text-xs font-medium text-navy hover:bg-gold-hover disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Save"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-0">
       {isUrgent && (
@@ -942,23 +1059,23 @@ function ProspectNextActionBar({
           </span>
         </div>
       )}
-      <div className={`${isUrgent ? "rounded-b-lg border border-t-0 border-alert-red/15" : "rounded-lg border border-gold/15"} bg-gold/5 px-3 py-2`}>
-        <div className="flex items-start justify-between gap-2 flex-wrap">
-          <div className="min-w-0 flex-1">
+      <div
+        className={`${isUrgent ? "rounded-b-lg border border-t-0 border-alert-red/15" : "rounded-lg border border-gold/15"} bg-gold/5 px-3 py-2 cursor-pointer hover:bg-gold/10 transition-colors`}
+        onClick={startEdit}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
             <p className="text-[10px] font-medium uppercase tracking-wider text-gold">Next Action</p>
-            <InlineTextField
-              value={prospect.Next_Action}
-              label="next action detail"
-              className="text-sm font-semibold"
-              onSave={val => onUpdate({ Next_Action: val })}
-            />
+            {prospect.Next_Action
+              ? <p className="text-sm font-semibold text-navy line-clamp-1">{prospect.Next_Action}</p>
+              : <p className="text-sm text-muted-foreground italic">Not set — click to add</p>
+            }
           </div>
-          <div className="shrink-0">
-            <InlineDateField
-              value={prospect.Next_Action_Date}
-              label="action date"
-              onSave={val => onUpdate({ Next_Action_Date: val })}
-            />
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            {!isUrgent && prospect.Next_Action_Date && (
+              <span className="text-xs font-medium text-navy">{formatRelativeDate(prospect.Next_Action_Date)}</span>
+            )}
+            <Pencil size={12} className="text-muted-foreground/40" />
           </div>
         </div>
       </div>
@@ -1105,6 +1222,7 @@ function ProspectProfileCard({
 const FILTER_OPTIONS = [
   { key: "all", label: "All" }, { key: "call", label: "Calls" },
   { key: "email", label: "Emails" }, { key: "meeting", label: "Meetings" },
+  { key: "commitment", label: "Commitments" },
   { key: "stage_change", label: "Stage Changes" }, { key: "update", label: "Updates" },
   { key: "automation", label: "Automated" },
 ];
@@ -1112,7 +1230,7 @@ const FILTER_OPTIONS = [
 const KIND_ICON: Record<ActivityKind, React.ReactNode> = {
   call: <Phone size={12} />, email: <Mail size={12} />, meeting: <CalendarDays size={12} />,
   note: <FileText size={12} />, update: <Pencil size={12} />, stage_change: <ArrowRight size={12} />,
-  automation: <Zap size={12} />,
+  automation: <Zap size={12} />, commitment: <CheckSquare size={12} />, activity_log_touch: <MessageSquare size={12} />,
 };
 
 function ActivityIcon({ kind }: { kind: ActivityKind }) {
@@ -1263,6 +1381,55 @@ function NoteCardContent({ activity }: { activity: UnifiedActivity }) {
         </div>
       )}
       {n.Created_By && <p className="mt-1.5 text-[11px] text-muted-foreground font-medium">{n.Created_By.name}</p>}
+    </div>
+  );
+}
+
+function ActivityLogTouchCardContent({ activity }: { activity: UnifiedActivity }) {
+  const al = activity.activityLog!;
+  const typeLabel = al.Activity_Type.replace(/_/g, " ");
+  return (
+    <div className="rounded-lg border bg-card px-3 py-2.5">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-sm font-medium text-navy">{typeLabel}</span>
+        <span className="text-[11px] text-muted-foreground">{al.Activity_Date}</span>
+        {al.Outcome && (
+          <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${al.Outcome === "connected" ? "bg-green-100 text-green-700" : "bg-orange-100 text-orange-700"}`}>
+            {al.Outcome === "connected" ? "Connected" : "Attempted"}
+          </span>
+        )}
+      </div>
+      {al.Description && <p className="mt-0.5 text-xs text-muted-foreground line-clamp-3">{al.Description}</p>}
+      {al.Owner && <p className="mt-1.5 text-[11px] text-muted-foreground font-medium">{al.Owner.name}</p>}
+    </div>
+  );
+}
+
+const COMMITMENT_STATUS_CONFIG: Record<string, { label: string; badge: string }> = {
+  open:       { label: "Open",        badge: "bg-gold/15 text-gold" },
+  fulfilled:  { label: "✓ Done",      badge: "bg-green-100 text-green-700" },
+  superseded: { label: "↺ Replaced",  badge: "bg-muted text-muted-foreground" },
+  cancelled:  { label: "✕ Cancelled", badge: "bg-red-100 text-red-600" },
+};
+
+function ActivityLogCommitmentCardContent({ activity }: { activity: UnifiedActivity }) {
+  const al = activity.activityLog!;
+  const status = al.Commitment_Status ?? "open";
+  const statusCfg = COMMITMENT_STATUS_CONFIG[status] ?? COMMITMENT_STATUS_CONFIG.open;
+  return (
+    <div className="rounded-lg border bg-card px-3 py-2.5">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-sm font-medium text-navy italic">Next Action Set</span>
+        {al.Commitment_Type && (
+          <span className="text-[11px] font-medium text-navy/70">{al.Commitment_Type}</span>
+        )}
+        <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${statusCfg.badge}`}>{statusCfg.label}</span>
+      </div>
+      {al.Commitment_Detail && <p className="mt-0.5 text-xs text-navy/80">{al.Commitment_Detail}</p>}
+      {al.Commitment_Due_Date && (
+        <p className="mt-1 text-[11px] text-muted-foreground">Due: {formatDate(al.Commitment_Due_Date)}</p>
+      )}
+      {al.Owner && <p className="mt-1 text-[11px] text-muted-foreground font-medium">{al.Owner.name}</p>}
     </div>
   );
 }
@@ -1481,6 +1648,8 @@ function ProspectActivityTimeline({ prospectId }: { prospectId: string }) {
                           {group.items.map((activity, idx) => {
                             const isLast = idx === group.items.length - 1;
                             const card =
+                              activity.activityLog && activity.kind === "commitment" ? <ActivityLogCommitmentCardContent activity={activity} /> :
+                              activity.activityLog                                   ? <ActivityLogTouchCardContent       activity={activity} /> :
                               activity.kind === "call"    ? <CallCardContent    activity={activity} /> :
                               activity.kind === "email"   ? <EmailCardContent   activity={activity} /> :
                               activity.kind === "meeting" ? <MeetingCardContent activity={activity} /> :

@@ -39,6 +39,8 @@ function ZohoCallbackInner() {
         const data = (await res.json()) as {
           error?:             string;
           error_description?: string;
+          user_id?:           string | null;
+          user_email?:        string | null;
           app_user?: {
             id:                string;
             email:             string | null;
@@ -54,9 +56,15 @@ function ZohoCallbackInner() {
         if (cancelled) return;
 
         if (!res.ok) {
+          const idParam    = data.user_id    ? `&user_id=${encodeURIComponent(data.user_id)}`       : "";
+          const emailParam = data.user_email ? `&user_email=${encodeURIComponent(data.user_email)}` : "";
           if (res.status === 403 && data.error === "role_not_allowed") {
             router.replace(
-              `/login?error=${encodeURIComponent(data.error_description ?? "Your Zoho role is not allowed.")}`
+              `/login?error=${encodeURIComponent(data.error_description ?? "Your Zoho role is not allowed.")}${idParam}${emailParam}`
+            );
+          } else if (res.status === 403 && (data.error === "not_authorized" || data.error === "access_revoked")) {
+            router.replace(
+              `/login?error=${encodeURIComponent(data.error_description ?? data.error)}${idParam}${emailParam}`
             );
           } else {
             router.replace(

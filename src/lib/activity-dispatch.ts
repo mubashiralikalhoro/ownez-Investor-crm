@@ -1,19 +1,15 @@
 /**
- * Client-side dispatcher for logging activities and updating prospect fields.
+ * Client-side dispatcher for logging activities and managing commitments.
  *
  * Calls the Next.js API routes — which in turn call Zoho via the service layer.
- * No silent fallbacks: a failed Call/Event POST throws with the Zoho error
- * message so the UI can surface it to the user.
+ * No silent fallbacks: failures throw with the Zoho error message so the UI can
+ * surface them.
  */
 
 import type { ActivityType, PipelineStage } from "@/lib/types";
+import type { ZohoActivityLog, ZohoCommitmentStatus } from "@/types";
 import { PROSPECT_PROGRESSION_STAGES } from "@/lib/prospect-config";
 
-/**
- * Local enum → Zoho picklist label. Local-only map — no need to modify
- * src/lib/zoho-map.ts (which only exports the inverse direction). Kept in
- * sync with PIPELINE_STAGES in src/lib/constants.ts.
- */
 export const STAGE_ENUM_TO_ZOHO: Record<PipelineStage, string> = {
   prospect:               "Prospect",
   initial_contact:        "Initial Contact",
@@ -37,94 +33,160 @@ async function extractError(res: Response, fallback: string): Promise<string> {
   }
 }
 
+// ─── Touch activities ────────────────────────────────────────────────────────
+
+export type LogActivityOptions = {
+  outcome?:             "connected" | "attempted" | null;
+  date?:                string;
+  fulfillsCommitmentId?: string | null;
+};
+
 /**
- * Log a freeform activity against a prospect.
- *
- * `call`  → POST /api/prospects/[id]/calls  (real Zoho Call record)
- * `meeting` → POST /api/prospects/[id]/events (real Zoho Event record)
- * everything else → POST /api/prospects/[id]/notes (Note with text.slice(0,80) as title)
+ * Log any touch activity against a prospect. Returns the new Activity_Log row id.
  */
 export async function logActivity(
   prospectId: string,
-  text: string,
-  type: ActivityType,
-): Promise<void> {
+  text:       string,
+  type:       ActivityType,
+  opts:       LogActivityOptions = {},
+): Promise<string> {
   const trimmed = text.trim();
   if (!trimmed) throw new Error("Activity text is required.");
 
-  if (type === "call") {
-    const res = await fetch(`/api/prospects/${prospectId}/calls`, {
-      method:      "POST",
-      headers:     { "Content-Type": "application/json" },
-      credentials: "same-origin",
-      body:        JSON.stringify({
-        subject:     trimmed.slice(0, 80),
-        description: trimmed,
-        callType:    "Outbound",
-        status:      "Completed",
-      }),
-    });
-    if (!res.ok) throw new Error(await extractError(res, "Failed to log call."));
-    return;
-  }
-
-  if (type === "meeting") {
-    const res = await fetch(`/api/prospects/${prospectId}/events`, {
-      method:      "POST",
-      headers:     { "Content-Type": "application/json" },
-      credentials: "same-origin",
-      body:        JSON.stringify({
-        title:       trimmed.slice(0, 80),
-        description: trimmed,
-      }),
-    });
-    if (!res.ok) throw new Error(await extractError(res, "Failed to log meeting."));
-    return;
-  }
-
-  // note, email, text_message, linkedin_message, whatsapp, document_sent,
-  // document_received, stage_change, reassignment — all land in Notes.
-  const res = await fetch(`/api/prospects/${prospectId}/notes`, {
-    method:      "POST",
-    headers:     { "Content-Type": "application/json" },
-    credentials: "same-origin",
-    body:        JSON.stringify({
-      title:   trimmed.slice(0, 80),
-      content: trimmed,
-    }),
-  });
-  if (!res.ok) throw new Error(await extractError(res, "Failed to log activity."));
-}
-
-/**
- * Update the prospect's Next Action fields in Zoho.
- * `detail` is the text; empty string clears the field.
- * `isoDate` is YYYY-MM-DD or null to clear.
- */
-export async function updateNextAction(
-  prospectId: string,
-  detail: string,
-  isoDate: string | null,
-): Promise<void> {
   const body: Record<string, unknown> = {
-    Next_Action:      detail || null,
-    Next_Action_Date: isoDate || null,
+    type,
+    description: trimmed,
   };
-  const res = await fetch(`/api/prospects/${prospectId}`, {
-    method:      "PUT",
+  if (opts.outcome             != null) body.outcome              = opts.outcome;
+  if (opts.date)                        body.date                 = opts.date;
+  if (opts.fulfillsCommitmentId != null) body.fulfillsCommitmentId = opts.fulfillsCommitmentId;
+
+  const res = await fetch(`/api/prospects/${prospectId}/activities`, {
+    method:      "POST",
     headers:     { "Content-Type": "application/json" },
     credentials: "same-origin",
     body:        JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(await extractError(res, "Failed to update next action."));
+  if (!res.ok) throw new Error(await extractError(res, "Failed to log activity."));
+
+  const json = await res.json() as { data?: { id?: string } };
+  const id = json.data?.id;
+  if (!id) throw new Error("Activity logged but no id returned.");
+  return id;
 }
 
+// ─── Commitments ─────────────────────────────────────────────────────────────
+
 /**
- * Set the prospect's Pipeline_Stage to an explicit Zoho picklist label.
- * Use this when the caller already knows the target stage.
+ * Open a new commitment (replaces the old updateNextAction that only wrote
+ * Prospect.Next_Action + Next_Action_Date). Returns the new commitment row id.
  */
-export async function setProspectStage(
+export async function openCommitment(
   prospectId: string,
+  type:       string,
+  detail:     string,
+  dueDate:    string,
+): Promise<string> {
+  const res = await fetch(`/api/prospects/${prospectId}/commitments`, {
+    method:      "POST",
+    headers:     { "Content-Type": "application/json" },
+    credentials: "same-origin",
+    body:        JSON.stringify({ type, detail, dueDate }),
+  });
+  if (!res.ok) throw new Error(await extractError(res, "Failed to set next action."));
+
+  const json = await res.json() as { data?: { id?: string } };
+  const id = json.data?.id;
+  if (!id) throw new Error("Commitment created but no id returned.");
+  return id;
+}
+
+/** Transition an open commitment to fulfilled / superseded / cancelled. */
+export async function closeCommitment(
+  prospectId:            string,
+  commitmentId:          string,
+  status:                Exclude<ZohoCommitmentStatus, "open">,
+  fulfilledByActivityId?: string | null,
+): Promise<void> {
+  const body: Record<string, unknown> = { status };
+  if (fulfilledByActivityId) body.fulfilledByActivityId = fulfilledByActivityId;
+
+  const res = await fetch(
+    `/api/prospects/${prospectId}/commitments/${commitmentId}`,
+    {
+      method:      "PATCH",
+      headers:     { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body:        JSON.stringify(body),
+    },
+  );
+  if (!res.ok) throw new Error(await extractError(res, "Failed to close commitment."));
+}
+
+/** Fetch all open commitments for a prospect. */
+export async function getOpenCommitments(
+  prospectId: string,
+): Promise<ZohoActivityLog[]> {
+  const res = await fetch(`/api/prospects/${prospectId}/commitments`, {
+    credentials: "same-origin",
+  });
+  if (!res.ok) throw new Error(await extractError(res, "Failed to fetch commitments."));
+  const json = await res.json() as { data?: ZohoActivityLog[] };
+  return json.data ?? [];
+}
+
+// ─── Drop lead ───────────────────────────────────────────────────────────────
+
+export type DropLeadOptions =
+  | { mode: "Dead";    lostReason: string; note?: string }
+  | { mode: "Nurture"; reEngageDate: string; note?: string };
+
+/**
+ * Drop a prospect to Dead/Nurture:
+ *   1. (Optional) log a stage-change note.
+ *   2. Set Pipeline_Stage + reason/re-engage date on the Prospect record.
+ *   3. Cancel all open commitments via the commitments API.
+ */
+export async function dropLead(
+  prospectId: string,
+  opts:       DropLeadOptions,
+): Promise<void> {
+  const stageLabel = opts.mode === "Dead" ? "Dead / Lost" : "Nurture";
+
+  // 1. Log stage-change touch
+  const noteText =
+    opts.mode === "Dead"
+      ? `Stage changed to Dead/Lost. Reason: ${opts.lostReason}.${opts.note ? " " + opts.note : ""}`
+      : `Stage changed to Nurture. Re-engage: ${opts.reEngageDate}.${opts.note ? " " + opts.note : ""}`;
+
+  await logActivity(prospectId, noteText, "stage_change");
+
+  // 2. Update Prospect stage + extra fields
+  const prospectUpdate: Record<string, unknown> = { Pipeline_Stage: stageLabel };
+  if (opts.mode === "Dead") {
+    prospectUpdate.Lost_Dead_Reason = opts.lostReason;
+  } else {
+    prospectUpdate.Next_Action_Date = opts.reEngageDate;
+  }
+  const stageRes = await fetch(`/api/prospects/${prospectId}`, {
+    method:      "PUT",
+    headers:     { "Content-Type": "application/json" },
+    credentials: "same-origin",
+    body:        JSON.stringify(prospectUpdate),
+  });
+  if (!stageRes.ok) throw new Error(await extractError(stageRes, "Failed to update prospect stage."));
+
+  // 3. Cancel open commitments
+  const openCommitments = await getOpenCommitments(prospectId);
+  await Promise.all(
+    openCommitments.map((c) => closeCommitment(prospectId, c.id, "cancelled")),
+  );
+}
+
+// ─── Stage helpers ───────────────────────────────────────────────────────────
+
+export async function setProspectStage(
+  prospectId:     string,
   stageZohoLabel: string,
 ): Promise<void> {
   const res = await fetch(`/api/prospects/${prospectId}`, {
@@ -136,14 +198,8 @@ export async function setProspectStage(
   if (!res.ok) throw new Error(await extractError(res, "Failed to change stage."));
 }
 
-/**
- * Advance a prospect's Pipeline_Stage one step forward along the linear
- * progression in PROSPECT_PROGRESSION_STAGES. Throws if the prospect is in a
- * special stage (Nurture / Dead / Lost) or already at the end of the
- * progression (Funded).
- */
 export async function advanceProspectStage(
-  prospectId: string,
+  prospectId:        string,
   currentLocalStage: PipelineStage | null,
 ): Promise<{ from: string; to: string }> {
   if (!currentLocalStage) throw new Error("Prospect has no stage to advance from.");

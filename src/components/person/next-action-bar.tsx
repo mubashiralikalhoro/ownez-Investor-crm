@@ -17,7 +17,7 @@ function EditNextAction({
   onSave: () => void;
   onCancel: () => void;
 }) {
-  const [actionType, setActionType] = useState(person.nextActionType ?? "follow_up");
+  const [actionType, setActionType] = useState(person.nextActionType ?? "Follow-up");
   const [detail, setDetail] = useState("");
   const [date, setDate] = useState(person.nextActionDate ?? "");
   const [saving, setSaving] = useState(false);

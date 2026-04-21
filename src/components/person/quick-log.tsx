@@ -32,7 +32,7 @@ export function QuickLog({ person }: QuickLogProps) {
 
   // Next Action Prompt state
   const [showPrompt, setShowPrompt] = useState(false);
-  const [promptActionType, setPromptActionType] = useState(person.nextActionType ?? "follow_up");
+  const [promptActionType, setPromptActionType] = useState(person.nextActionType ?? "Follow-up");
   const [promptDetail, setPromptDetail] = useState("");
   const [promptDate, setPromptDate] = useState(person.nextActionDate ?? "");
 
@@ -71,7 +71,7 @@ export function QuickLog({ person }: QuickLogProps) {
 
       // Show next action prompt — detail starts empty, old value as placeholder
       setShowPrompt(true);
-      setPromptActionType(person.nextActionType ?? "follow_up");
+      setPromptActionType(person.nextActionType ?? "Follow-up");
       setPromptDetail("");
       setPromptDate(person.nextActionDate ?? "");
 

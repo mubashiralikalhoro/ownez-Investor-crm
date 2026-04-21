@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
-import { getProspectNotes, createProspectNote } from "@/services/prospects";
+import { getProspectNotes } from "@/services/prospects";
+import { logTouchActivity } from "@/services/activity-log";
+import { checkProspectAccess } from "@/lib/prospect-access";
 
 export async function GET(
   _request: NextRequest,
@@ -10,6 +12,9 @@ export async function GET(
   if (!session) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
   const { id } = await params;
+
+  const denied = await checkProspectAccess(session, id);
+  if (denied) return denied;
 
   try {
     const notes = await getProspectNotes(session.accessToken, id);
@@ -23,7 +28,7 @@ export async function GET(
 
 /**
  * POST /api/prospects/[id]/notes
- * Body: { title?: string, content: string }
+ * Body: { content: string, date?: string (YYYY-MM-DD), fulfillsCommitmentId?: string }
  */
 export async function POST(
   request: NextRequest,
@@ -34,9 +39,12 @@ export async function POST(
 
   const { id } = await params;
 
-  let body: { title?: string; content?: string };
+  const denied = await checkProspectAccess(session, id);
+  if (denied) return denied;
+
+  let body: { content?: string; date?: string; fulfillsCommitmentId?: string };
   try {
-    body = (await request.json()) as { title?: string; content?: string };
+    body = (await request.json()) as typeof body;
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
@@ -45,8 +53,13 @@ export async function POST(
   if (!content) return NextResponse.json({ error: "content is required." }, { status: 422 });
 
   try {
-    const note = await createProspectNote(session.accessToken, id, body.title ?? "", content);
-    return NextResponse.json({ data: note }, { status: 201 });
+    const activityId = await logTouchActivity(session.accessToken, id, {
+      type:                 "note",
+      description:          content,
+      date:                 body.date,
+      fulfillsCommitmentId: body.fulfillsCommitmentId ?? null,
+    });
+    return NextResponse.json({ data: { id: activityId } }, { status: 201 });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to create note.";
     const status  = message.includes("(401)") ? 401 : 500;

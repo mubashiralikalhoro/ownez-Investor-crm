@@ -17,6 +17,7 @@ import type {
   ZohoTask,
   ZohoFundedRecord,
 } from "@/types";
+import { listProspectActivityLogs } from "@/lib/zoho/activity-log";
 import { printLog } from "@/lib/utils";
 
 /** Fields to request from the Prospects module. */
@@ -1343,19 +1344,54 @@ export async function getProspectTimeline(
   accessToken: string,
   id: string
 ): Promise<ZohoTimelineEvent[]> {
-  try {
-    const { data: json } = await zohoApi.get<{ __timeline?: ZohoTimelineEvent[]; info?: unknown }>(
-      accessToken,
-      `/Prospect/${id}/__timeline`,
-      {
-        include_inner_details: "field_history.data_type,field_history.field_label,done_by.type__s,done_by.profile",
-        sort_by: "audited_time",
-        per_page: 50,
+  // Fetch built-in Zoho timeline (legacy Calls/Events/Notes/field-history) and
+  // Activity_Log rows in parallel. New activities land in Activity_Log only; old
+  // ones in the built-in timeline only — the union covers both.
+  const [builtIn, activityLogs] = await Promise.all([
+    (async (): Promise<ZohoTimelineEvent[]> => {
+      try {
+        const { data: json } = await zohoApi.get<{ __timeline?: ZohoTimelineEvent[]; info?: unknown }>(
+          accessToken,
+          `/Prospect/${id}/__timeline`,
+          {
+            include_inner_details: "field_history.data_type,field_history.field_label,done_by.type__s,done_by.profile",
+            sort_by: "audited_time",
+            per_page: 50,
+          }
+        );
+        return json.__timeline ?? [];
+      } catch (err) {
+        if (err instanceof AxiosError && err.response?.status === 204) return [];
+        wrapZohoError("Zoho Prospect timeline error", err);
       }
-    );
-    return json.__timeline ?? [];
-  } catch (err) {
-    if (err instanceof AxiosError && err.response?.status === 204) return [];
-    wrapZohoError("Zoho Prospect timeline error", err);
-  }
+    })(),
+    listProspectActivityLogs(accessToken, id).catch(() => []),
+  ]);
+
+  // Convert Activity_Log rows to ZohoTimelineEvent shape, attaching the raw row
+  // as `_activityLog` so the renderer can access commitment-specific fields.
+  const alEvents: ZohoTimelineEvent[] = activityLogs.map((row) => ({
+    id:           row.id,
+    action:       row.Activity_Type,
+    done_by:      row.Owner ? { id: row.Owner.id, name: row.Owner.name ?? "" } : null,
+    audited_time: row.Activity_Date ? `${row.Activity_Date}T12:00:00` : (row.Created_Time ?? ""),
+    source:       "crm_ui",
+    type:         "activity_log",
+    record: {
+      name:   row.Name ?? row.Description ?? row.Activity_Type,
+      id:     row.id,
+      module: { api_name: "Activity_Log", id: row.id },
+    },
+    _activityLog: row,
+  }));
+
+  // Merge and sort newest-first by audited_time.
+  const merged = [...builtIn, ...alEvents];
+  merged.sort((a, b) => {
+    const ta = a.audited_time ?? "";
+    const tb = b.audited_time ?? "";
+    return tb.localeCompare(ta);
+  });
+
+  return merged;
 }
