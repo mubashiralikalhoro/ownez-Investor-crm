@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
-import { logTouchActivity } from "@/services/activity-log";
+import { logTouchActivity, autoCloseOutOnActivity } from "@/services/activity-log";
 import { checkProspectAccess } from "@/lib/prospect-access";
 import type { ActivityType } from "@/lib/types";
 
@@ -62,7 +62,24 @@ export async function POST(
       date:                 body.date,
       fulfillsCommitmentId: body.fulfillsCommitmentId ?? null,
     });
-    return NextResponse.json({ data: { id: activityId } }, { status: 201 });
+
+    // Auto close-out the (single) open commitment based on type match.
+    // Skipped when caller provided explicit `fulfillsCommitmentId` — that
+    // path already closed the commitment via its own service layer.
+    const autoClose = body.fulfillsCommitmentId
+      ? { closed: null }
+      : await autoCloseOutOnActivity(
+          session.accessToken,
+          id,
+          activityId,
+          type,
+          body.outcome ?? null,
+        );
+
+    return NextResponse.json(
+      { data: { id: activityId, autoClose } },
+      { status: 201 },
+    );
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to log activity.";
     const status  = message.includes("(401)") ? 401 : 500;

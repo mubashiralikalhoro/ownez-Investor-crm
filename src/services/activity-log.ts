@@ -19,6 +19,32 @@ import { getTodayCT } from "@/lib/format";
 import type { ActivityType } from "@/lib/types";
 import type { ZohoActivityLog, ZohoCommitmentStatus } from "@/types";
 
+// ─── Auto close-out matching (type-based) ────────────────────────────────────
+
+/**
+ * Commitment_Type → activity types that count as fulfilling it.
+ * "any" = any non-note touch fulfills (Follow-up = generic).
+ * []    = never auto-fulfills (Other = requires explicit close).
+ */
+const COMMITMENT_MATCHES: Record<string, ActivityType[] | "any"> = {
+  Call:        ["call"],
+  Email:       ["email"],
+  Meeting:     ["meeting"],
+  Document:    ["document_sent", "document_received"],
+  "Follow-up": "any",
+  Other:       [],
+};
+
+function activityMatchesCommitment(
+  commitmentType: string | null | undefined,
+  activityType:   ActivityType,
+): boolean {
+  const rule = COMMITMENT_MATCHES[commitmentType ?? ""];
+  if (rule === "any") return true;
+  if (!rule) return false;
+  return rule.includes(activityType);
+}
+
 // ─── Activity type translation (app enum → Zoho Activity_Type value) ─────────
 
 /**
@@ -148,6 +174,62 @@ export async function closeCommitment(
       console.warn(`Failed to link fulfiller ${fulfilledByActivityId} → commitment ${commitmentId}`);
     }
   }
+}
+
+export type AutoCloseResult =
+  | { closed: "fulfilled" | "cancelled"; commitmentId: string }
+  | { closed: null };
+
+/**
+ * After a touch activity is logged, auto-transition the (single) open
+ * commitment based on type match. Rules:
+ *   - note / stage_change / reassignment → no-op (neutral)
+ *   - outcome = "attempted"              → no-op (call not done properly)
+ *   - type matches commitment            → fulfilled, back-linked to activity
+ *   - type mismatches                    → cancelled
+ *
+ * System invariant: at most one open commitment per prospect.
+ */
+export async function autoCloseOutOnActivity(
+  accessToken:  string,
+  prospectId:   string,
+  activityId:   string,
+  activityType: ActivityType,
+  outcome:      "connected" | "attempted" | null,
+): Promise<AutoCloseResult> {
+  if (activityType === "note")         return { closed: null };
+  if (activityType === "stage_change") return { closed: null };
+  if (activityType === "reassignment") return { closed: null };
+  if (outcome === "attempted")         return { closed: null };
+
+  const open = await listOpenCommitments(accessToken, prospectId);
+  if (open.length === 0) return { closed: null };
+
+  const commitment = open[0];
+  const matches = activityMatchesCommitment(commitment.Commitment_Type, activityType);
+
+  if (matches) {
+    await closeCommitment(accessToken, commitment.id, "fulfilled", activityId);
+  } else {
+    await closeCommitment(accessToken, commitment.id, "cancelled");
+  }
+
+  // Clear the Prospect-level Next_Action denormalization — otherwise the
+  // bar keeps showing the just-closed commitment's detail. If the user
+  // confirms a new commitment in the Next Action prompt, openCommitment()
+  // overwrites these fields with the new values.
+  try {
+    await zohoApi.put(accessToken, `/Prospect/${prospectId}`, {
+      data: [{ Next_Action: null, Next_Action_Date: null }],
+    });
+  } catch {
+    /* denormalization cleanup best-effort */
+  }
+
+  return {
+    closed:       matches ? "fulfilled" : "cancelled",
+    commitmentId: commitment.id,
+  };
 }
 
 /** Cancel every still-`open` commitment on a prospect (used by Drop lead). */

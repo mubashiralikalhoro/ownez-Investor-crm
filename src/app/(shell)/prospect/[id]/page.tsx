@@ -11,6 +11,7 @@ import {
   X, Trash2, Upload, Check, Plus, MessageSquare,
 } from "lucide-react";
 import { ProspectDetailSkeleton } from "@/components/prospect/prospect-skeleton";
+import { ProspectQuickLog } from "@/components/prospect/prospect-quick-log";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { NoteEditor, NoteContent } from "@/components/ui/note-editor";
@@ -2380,6 +2381,26 @@ export default function ProspectDetailPage() {
         <ProspectIdentityBar prospect={prospect} onUpdate={updateProspect} />
         {prospect.Pipeline_Stage !== "Funded" && (
           <ProspectNextActionBar prospect={prospect} onUpdate={updateProspect} />
+        )}
+        {prospect.Pipeline_Stage !== "Funded" && (
+          <ProspectQuickLog
+            prospectId={prospect.id}
+            prospectName={prospect.Name ?? "prospect"}
+            pipelineStage={
+              prospect.Pipeline_Stage
+                ? ZOHO_TO_STAGE[prospect.Pipeline_Stage] ?? null
+                : null
+            }
+            nextActionType={null}
+            nextActionDetail={prospect.Next_Action ?? null}
+            nextActionDate={prospect.Next_Action_Date ?? null}
+            onRefresh={fetchAll}
+            onLocalSync={(fields) =>
+              setProspect(prev =>
+                prev ? ({ ...prev, ...fields } as ZohoProspectDetail) : prev,
+              )
+            }
+          />
         )}
       </div>
 
