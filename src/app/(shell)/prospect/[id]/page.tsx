@@ -983,6 +983,10 @@ function ProspectNextActionBar({
   const [busy,  setBusy]  = useState<null | "done" | "edit" | "drop">(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Outstanding panel staged selection — user picks D/P/R, then Confirm applies.
+  type ResolutionChoice = "done" | "pending" | "replace";
+  const [selectedAction, setSelectedAction] = useState<ResolutionChoice | null>(null);
+
   // Fetch the current open commitment id so Mark Done / Cancel can target it.
   useEffect(() => {
     let abort = false;
@@ -1318,17 +1322,47 @@ function ProspectNextActionBar({
     })();
     const actionLabel = prospect.Next_Action ?? "Next Action";
 
+    async function handleConfirmResolution() {
+      if (!selectedAction || busy) return;
+      if (selectedAction === "done") {
+        await handleMarkDone();
+        setSelectedAction(null);
+      } else if (selectedAction === "pending") {
+        handleMarkPending();
+        setSelectedAction(null);
+      } else if (selectedAction === "replace") {
+        setSelectedAction(null);
+        startEdit();
+      }
+    }
+
+    const chipMeta: { key: ResolutionChoice; hotkey: "D" | "P" | "R"; title: string; desc: string }[] = [
+      { key: "done",    hotkey: "D", title: "Done",          desc: "activity handled it" },
+      { key: "pending", hotkey: "P", title: "Still pending", desc: "stays open" },
+      { key: "replace", hotkey: "R", title: "Replace",       desc: "set a new one" },
+    ];
+
     return (
       <div
         role="group"
         aria-label="Next action — outstanding"
         className="rounded-lg p-4 space-y-3 border border-alert-red/30 bg-alert-red/5"
       >
-        <div className="flex items-start gap-2">
-          <AlertTriangle size={16} className="mt-0.5 shrink-0 text-alert-red" aria-hidden />
-          <p className="text-xs font-semibold uppercase tracking-wider text-alert-red">
-            Outstanding
-          </p>
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-start gap-2">
+            <AlertTriangle size={16} className="mt-0.5 shrink-0 text-alert-red" aria-hidden />
+            <p className="text-xs font-semibold uppercase tracking-wider text-alert-red">
+              Outstanding
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={startDrop}
+            disabled={!!busy}
+            className="text-[11px] text-muted-foreground hover:text-navy hover:underline shrink-0"
+          >
+            Drop lead ▸
+          </button>
         </div>
 
         <p className="text-sm text-navy">
@@ -1346,52 +1380,49 @@ function ProspectNextActionBar({
         </p>
 
         <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={handleMarkDone}
-            disabled={!commitLoaded || !!busy}
-            className="rounded-full bg-gold text-navy hover:bg-gold-hover disabled:opacity-50 px-3 py-1.5 text-xs font-medium transition-colors"
-          >
-            <span className="font-semibold">[D]</span> Done
-            <span className="ml-1 font-normal opacity-70">— activity handled it</span>
-            {busy === "done" && <Loader2 size={11} className="ml-1 inline animate-spin" />}
-          </button>
-          <button
-            type="button"
-            onClick={handleMarkPending}
-            disabled={!!busy}
-            className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50 ${
-              pendingAck
-                ? "bg-alert-red/15 text-alert-red"
-                : "bg-muted text-muted-foreground hover:bg-gold/20 hover:text-navy"
-            }`}
-          >
-            <span className="font-semibold">[P]</span> Still pending
-            <span className="ml-1 font-normal opacity-70">
-              {pendingAck ? "— kept open" : "— stays open"}
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={startEdit}
-            disabled={!!busy}
-            className="rounded-full bg-muted text-muted-foreground hover:bg-gold/20 hover:text-navy disabled:opacity-50 px-3 py-1.5 text-xs font-medium transition-colors"
-          >
-            <span className="font-semibold">[R]</span> Replace
-            <span className="ml-1 font-normal opacity-70">— set a new one</span>
-          </button>
+          {chipMeta.map((m) => {
+            const active = selectedAction === m.key;
+            return (
+              <button
+                key={m.key}
+                type="button"
+                aria-pressed={active}
+                onClick={() => { setSelectedAction(m.key); setError(null); }}
+                disabled={(m.key === "done" && !commitLoaded) || !!busy}
+                className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50 ${
+                  active
+                    ? "bg-gold text-navy"
+                    : "bg-muted text-muted-foreground hover:bg-gold/20 hover:text-navy"
+                }`}
+              >
+                <span className="font-semibold">[{m.hotkey}]</span> {m.title}
+                <span className="ml-1 font-normal opacity-70">— {m.desc}</span>
+              </button>
+            );
+          })}
         </div>
 
-        <div className="flex items-center justify-end border-t border-alert-red/10 pt-2">
-          <button
-            type="button"
-            onClick={startDrop}
-            disabled={!!busy}
-            className="text-[11px] text-muted-foreground hover:text-navy hover:underline"
-          >
-            Drop lead ▸
-          </button>
-        </div>
+        {selectedAction && (
+          <div className="flex items-center justify-end gap-2 border-t border-alert-red/10 pt-2">
+            <button
+              type="button"
+              onClick={() => { setSelectedAction(null); setError(null); }}
+              disabled={!!busy}
+              className="rounded-full px-3 py-1.5 text-xs text-muted-foreground hover:text-navy disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmResolution}
+              disabled={!!busy}
+              className="rounded-full bg-gold px-4 py-1.5 text-xs font-medium text-navy hover:bg-gold-hover disabled:opacity-50 inline-flex items-center gap-1.5"
+            >
+              {busy === "done" && <Loader2 size={11} className="animate-spin" />}
+              Confirm
+            </button>
+          </div>
+        )}
 
         {error && <p role="alert" className="text-xs font-medium text-alert-red">{error}</p>}
       </div>
