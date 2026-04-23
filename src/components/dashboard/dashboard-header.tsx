@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { ClipboardList, Search, Check, AlertCircle } from "lucide-react";
+import { ClipboardList, Search, Check, AlertCircle, RefreshCw } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -31,13 +31,65 @@ import type { PersonWithComputed, Activity } from "@/lib/types";
 
 interface DashboardHeaderProps {
   prospects: PersonWithComputed[];
+  cachedAt?: number | null;
+  refreshing?: boolean;
+  onRefresh?: () => void;
 }
 
-export function DashboardHeader({ prospects }: DashboardHeaderProps) {
+function formatAge(cachedAt: number | null | undefined, nowMs: number): string {
+  if (!cachedAt) return "—";
+  const secs = Math.max(0, Math.floor((nowMs - cachedAt) / 1000));
+  if (secs < 60) return `${secs}s ago`;
+  const mins = Math.floor(secs / 60);
+  const remSec = secs % 60;
+  if (mins < 60) return remSec > 0 ? `${mins}m ${remSec}s ago` : `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  const remMin = mins % 60;
+  return remMin > 0 ? `${hrs}h ${remMin}m ago` : `${hrs}h ago`;
+}
+
+export function DashboardHeader({ prospects, cachedAt, refreshing, onRefresh }: DashboardHeaderProps) {
+  const [nowMs, setNowMs] = useState<number>(() => Date.now());
+
+  useEffect(() => {
+    if (!cachedAt) return;
+    const id = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [cachedAt]);
+
   return (
     <div className="flex items-center justify-between mb-6 gap-3">
       <h1 className="text-lg md:text-xl font-semibold text-navy shrink-0">Dashboard</h1>
       <div className="flex items-center gap-2 md:gap-3">
+        {onRefresh && (
+          <div className="hidden md:flex items-center gap-2 shrink-0">
+            <span className="text-xs text-muted-foreground tabular-nums">
+              Last cache: <span className="font-medium text-navy">{formatAge(cachedAt, nowMs)}</span>
+            </span>
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={refreshing}
+              className="inline-flex items-center gap-1.5 rounded-full border border-gold/40 bg-gold/10 px-3 py-1.5 text-xs font-medium text-gold hover:bg-gold/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              title="Force-refresh from Zoho and update Redis"
+            >
+              <RefreshCw size={12} className={refreshing ? "animate-spin" : ""} />
+              {refreshing ? "Refreshing…" : "Refresh"}
+            </button>
+          </div>
+        )}
+        {onRefresh && (
+          <button
+            type="button"
+            onClick={onRefresh}
+            disabled={refreshing}
+            className="md:hidden inline-flex items-center justify-center h-8 w-8 rounded-full border border-gold/40 bg-gold/10 text-gold hover:bg-gold/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            title="Refresh"
+            aria-label="Refresh"
+          >
+            <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
+          </button>
+        )}
         <CreateProspectSheet />
         <LogActivitySheet prospects={prospects} />
       </div>

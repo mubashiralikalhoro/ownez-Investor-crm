@@ -37,24 +37,34 @@ function computeStats(prospects: ZohoProspect[]): ZohoDashboardStats {
 /**
  * GET /api/dashboard/data
  *
- * Returns all prospects (from Redis cache, 30-min TTL) plus stats computed
- * from the same dataset. Single source of truth for the dashboard.
+ * Returns all prospects (from Redis cache) plus stats computed from the same
+ * dataset. Single source of truth for the dashboard.
+ *
+ * Query params:
+ *   refresh=1 — bypass Redis and repopulate from Zoho.
  *
  * Response:
- *   { prospects: ZohoProspect[], stats: ZohoDashboardStats }
+ *   { prospects: ZohoProspect[], stats: ZohoDashboardStats, cachedAt?: number, fromCache?: boolean }
  */
-export async function GET(_request: NextRequest) {
+export async function GET(request: NextRequest) {
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
 
+  const force = request.nextUrl.searchParams.get("refresh") === "1";
+
   try {
-    const result    = await getAllProspects(session.accessToken);
+    const result    = await getAllProspects(session.accessToken, { force });
     const prospects = result.data;
     const stats     = computeStats(prospects);
 
-    return NextResponse.json({ prospects, stats });
+    return NextResponse.json({
+      prospects,
+      stats,
+      cachedAt:  result.cachedAt,
+      fromCache: result.fromCache,
+    });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to load dashboard data.";
     const status  = message.includes("(401)") ? 401 : 500;

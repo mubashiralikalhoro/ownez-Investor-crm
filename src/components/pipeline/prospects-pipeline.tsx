@@ -148,14 +148,20 @@ export function ProspectsPipeline() {
   );
 
   // When the DB lists land (async after the first fetch), merge them into
-  // filter options without reloading all the rows.
+  // filter options without reloading all the rows. Union with any row-derived
+  // entries already in filterOptions so the owner/source list never shrinks
+  // out of view mid-session.
   useEffect(() => {
     if (dbSources.length === 0 && dbOwners.length === 0) return;
-    setFilterOptions((prev) => ({
-      ...prev,
-      ...(dbSources.length > 0 ? { sources: dbSources } : {}),
-      ...(dbOwners.length > 0  ? { owners:  dbOwners }  : {}),
-    }));
+    setFilterOptions((prev) => {
+      const nextSources = dbSources.length > 0
+        ? Array.from(new Set([...prev.sources, ...dbSources])).sort()
+        : prev.sources;
+      const ownerMap = new Map(prev.owners.map((o) => [o.id, o]));
+      for (const o of dbOwners) ownerMap.set(o.id, o);
+      const nextOwners = Array.from(ownerMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+      return { ...prev, sources: nextSources, owners: nextOwners };
+    });
   }, [dbSources, dbOwners]);
 
   // Re-fetch whenever any filter/sort/page changes.
@@ -249,7 +255,7 @@ export function ProspectsPipeline() {
         </select>
 
         {/* Owner */}
-        {filterOptions.owners.length > 1 && (
+        {filterOptions.owners.length > 0 && (
           <select
             value={ownerFilter}
             onChange={(e) => setOwnerFilter(e.target.value)}

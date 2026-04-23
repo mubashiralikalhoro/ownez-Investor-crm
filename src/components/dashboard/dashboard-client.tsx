@@ -124,20 +124,24 @@ export function DashboardClient() {
     fundedYTD: 0,
   });
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [cachedAt, setCachedAt] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // ── Fetch helpers ──────────────────────────────────────────────────────────
 
-  const fetchAll = useCallback(async (isRetry = false) => {
-    setLoading(true);
+  const fetchAll = useCallback(async (isRetry = false, force = false) => {
+    if (force) setRefreshing(true);
+    else setLoading(true);
     setError(null);
 
     try {
-      const res = await fetch("/api/dashboard/data", { credentials: "same-origin" });
+      const url = force ? "/api/dashboard/data?refresh=1" : "/api/dashboard/data";
+      const res = await fetch(url, { credentials: "same-origin" });
 
       if (res.status === 401 && !isRetry) {
         const ok = await tryRefresh();
-        if (ok) { fetchAll(true); return; }
+        if (ok) { fetchAll(true, force); return; }
         router.replace("/login?next=/");
         return;
       }
@@ -148,14 +152,20 @@ export function DashboardClient() {
         return;
       }
 
-      const json = await res.json() as { prospects: ZohoProspect[]; stats: DashboardStats };
+      const json = await res.json() as {
+        prospects: ZohoProspect[];
+        stats: DashboardStats;
+        cachedAt?: number;
+      };
       const today = todayISO();
       setProspects((json.prospects ?? []).map(p => toPersonWithComputed(p, today)));
       setStats(json.stats);
+      setCachedAt(json.cachedAt ?? Date.now());
     } catch {
       setError("Network error — could not load dashboard.");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, [router]);
 
@@ -216,6 +226,9 @@ export function DashboardClient() {
       {/* Zone 1: Header */}
       <DashboardHeader
         prospects={prospects.filter(p => p.pipelineStage !== "funded")}
+        cachedAt={cachedAt}
+        refreshing={refreshing}
+        onRefresh={() => fetchAll(false, true)}
       />
 
       <div className="space-y-6">
