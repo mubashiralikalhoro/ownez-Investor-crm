@@ -46,13 +46,32 @@ type FieldsListResponse = {
 export async function fetchProspectLeadSourceField(
   accessToken: string,
 ): Promise<{ id: string; picklist: ZohoPicklistValue[] } | null> {
+  return fetchProspectPicklistField(accessToken, "Lead_Source");
+}
+
+/**
+ * GET /settings/fields?module=Prospect
+ *
+ * Finds the Lost_Dead_Reason field on the Prospect module and returns its id
+ * plus current picklist values. Returns null if the field can't be located.
+ */
+export async function fetchProspectLostDeadReasonField(
+  accessToken: string,
+): Promise<{ id: string; picklist: ZohoPicklistValue[] } | null> {
+  return fetchProspectPicklistField(accessToken, "Lost_Dead_Reason");
+}
+
+async function fetchProspectPicklistField(
+  accessToken: string,
+  apiName: string,
+): Promise<{ id: string; picklist: ZohoPicklistValue[] } | null> {
   try {
     const { data } = await zohoApi.get<FieldsListResponse>(
       accessToken,
       "/settings/fields",
       { module: "Prospect" },
     );
-    const field = data.fields?.find(f => f.api_name === "Lead_Source");
+    const field = data.fields?.find(f => f.api_name === apiName);
     if (!field?.id) return null;
     return {
       id:       field.id,

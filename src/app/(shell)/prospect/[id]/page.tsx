@@ -80,6 +80,56 @@ function formatAuditedTime(iso: string): string {
   return `${formatDate(iso)} ${formatTime(timePart)}`;
 }
 
+// ─── Lost-reason picklist hook ────────────────────────────────────────────────
+
+type LostReasonOption = { display_value: string; actual_value: string };
+
+/**
+ * Loads the live `Lost_Dead_Reason` picklist from /api/prospects/lost-reasons.
+ * Falls back to the hardcoded `LOST_REASONS` constant on fetch failure so the
+ * UI stays usable when the route or Zoho is down.
+ */
+function useLostReasons(enabled: boolean): {
+  options: LostReasonOption[];
+  loading: boolean;
+  fellBack: boolean;
+} {
+  const [options,  setOptions]  = useState<LostReasonOption[]>([]);
+  const [loading,  setLoading]  = useState(false);
+  const [fellBack, setFellBack] = useState(false);
+
+  useEffect(() => {
+    if (!enabled) return;
+    let abort = false;
+    setLoading(true);
+    (async () => {
+      try {
+        const res = await makeRequest("/api/prospects/lost-reasons");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json() as { data?: LostReasonOption[] };
+        const data = (json.data ?? []).filter(o => o.actual_value);
+        if (abort) return;
+        if (data.length === 0) {
+          setOptions(LOST_REASONS.map(r => ({ display_value: r.label, actual_value: r.label })));
+          setFellBack(true);
+        } else {
+          setOptions(data);
+          setFellBack(false);
+        }
+      } catch {
+        if (abort) return;
+        setOptions(LOST_REASONS.map(r => ({ display_value: r.label, actual_value: r.label })));
+        setFellBack(true);
+      } finally {
+        if (!abort) setLoading(false);
+      }
+    })();
+    return () => { abort = true; };
+  }, [enabled]);
+
+  return { options, loading, fellBack };
+}
+
 // ─── Inline Edit Components ───────────────────────────────────────────────────
 
 interface InlineSaveProps {
@@ -337,6 +387,65 @@ function InlineLeadSourceField({
         <option value="">— Select —</option>
         {LEAD_SOURCE_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
       </select>
+      <InlineSaveBar saving={saving} onSave={save} onCancel={cancel} error={err} />
+    </span>
+  );
+}
+
+function InlineLostReasonField({
+  value, onSave,
+}: {
+  value: string | null | undefined;
+  onSave: (val: string | null) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value ?? "");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const { options, loading, fellBack } = useLostReasons(editing);
+
+  const start = () => { setDraft(value ?? ""); setErr(null); setEditing(true); };
+  const cancel = () => { setEditing(false); setErr(null); };
+  const save = async () => {
+    if (saving) return;
+    setSaving(true); setErr(null);
+    try { await onSave(draft || null); setEditing(false); }
+    catch (e) { setErr(e instanceof Error ? e.message : "Save failed"); }
+    finally { setSaving(false); }
+  };
+
+  if (!editing) {
+    return (
+      <span
+        className="group/lr cursor-pointer inline-flex items-center gap-1 hover:bg-gold/8 rounded px-0.5 -mx-0.5 transition-colors"
+        onClick={start}
+      >
+        {value
+          ? <span className="text-xs font-medium text-navy">{value}</span>
+          : <span className="text-xs text-muted-foreground/40 italic">Not set</span>}
+        <Pencil size={9} className="opacity-0 group-hover/lr:opacity-30 transition-opacity shrink-0" />
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex flex-wrap items-center gap-2">
+      <select
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        autoFocus
+        disabled={loading}
+        className="border border-gold/50 rounded-md px-2.5 py-1.5 text-xs text-navy bg-white focus:outline-none focus:ring-2 focus:ring-gold/40 shadow-sm disabled:opacity-50"
+      >
+        <option value="">— Select —</option>
+        {options.map(o => (
+          <option key={o.actual_value} value={o.actual_value}>{o.display_value}</option>
+        ))}
+      </select>
+      {fellBack && (
+        <span className="text-[10px] text-muted-foreground/70 italic">(offline)</span>
+      )}
       <InlineSaveBar saving={saving} onSave={save} onCancel={cancel} error={err} />
     </span>
   );
@@ -969,6 +1078,9 @@ function ProspectNextActionBar({
   const [openCommitId, setOpenCommitId] = useState<string | null>(null);
   const [commitLoaded, setCommitLoaded] = useState(false);
 
+  // Lazy-load Zoho Lost_Dead_Reason picklist when the drop form opens.
+  const lostReasons = useLostReasons(mode === "drop");
+
   // Edit / Reschedule form
   const [actionType, setActionType] = useState("Follow-up");
   const [detail,     setDetail]     = useState("");
@@ -1127,7 +1239,9 @@ function ProspectNextActionBar({
       );
 
       // 2. Log stage-change touch.
-      const reasonLabel = LOST_REASONS.find(r => r.key === lostReason)?.label ?? lostReason ?? "";
+      const reasonValue = lostReason ?? "";
+      const reasonLabel =
+        lostReasons.options.find(o => o.actual_value === reasonValue)?.display_value ?? reasonValue;
       const noteText = dropTarget === "dead"
         ? `Stage changed to Dead/Lost. Reason: ${reasonLabel}.${reasonNote.trim() ? " " + reasonNote.trim() : ""}`
         : `Stage changed to Nurture. Re-engage: ${reengageDate}.`;
@@ -1143,7 +1257,7 @@ function ProspectNextActionBar({
         Next_Action:       null,
         Next_Action_Date:  dropTarget === "nurture" ? reengageDate : null,
       };
-      if (dropTarget === "dead") fields.Lost_Dead_Reason = reasonLabel;
+      if (dropTarget === "dead") fields.Lost_Dead_Reason = reasonValue;
       await onUpdate(fields);
       setOpenCommitId(null);
       setMode("view");
@@ -1247,25 +1361,32 @@ function ProspectNextActionBar({
 
         {dropTarget === "dead" && (
           <div className="space-y-3">
-            <div className="flex flex-wrap gap-2">
-              {LOST_REASONS.map((r) => {
-                const active = lostReason === r.key;
-                return (
-                  <button
-                    key={r.key}
-                    type="button"
-                    aria-pressed={active}
-                    onClick={() => setLostReason(r.key)}
-                    className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
-                      active
-                        ? "bg-gold text-navy"
-                        : "bg-card text-muted-foreground hover:bg-gold/20 hover:text-navy"
-                    }`}
-                  >
-                    {r.label}
-                  </button>
-                );
-              })}
+            <div className="flex flex-wrap items-center gap-2">
+              {lostReasons.loading && lostReasons.options.length === 0 ? (
+                <Loader2 size={12} className="animate-spin text-muted-foreground" />
+              ) : (
+                lostReasons.options.map((r) => {
+                  const active = lostReason === r.actual_value;
+                  return (
+                    <button
+                      key={r.actual_value}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => setLostReason(r.actual_value)}
+                      className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+                        active
+                          ? "bg-gold text-navy"
+                          : "bg-card text-muted-foreground hover:bg-gold/20 hover:text-navy"
+                      }`}
+                    >
+                      {r.display_value}
+                    </button>
+                  );
+                })
+              )}
+              {lostReasons.fellBack && (
+                <span className="text-[10px] text-muted-foreground/70 italic">(offline reasons)</span>
+              )}
             </div>
             <input
               type="text"
@@ -1557,14 +1678,13 @@ function ProspectProfileCard({
               // Company entity: already editable in identity bar
               if (field.api_name === "Company_Entity") return null;
 
-              // Lost/Dead reason: inline text
+              // Lost/Dead reason: inline picklist (live from Zoho)
               if (field.api_name === "Lost_Dead_Reason") {
                 return (
                   <div key={field.api_name} className="flex items-center gap-2">
                     <span className="text-[10px] text-muted-foreground w-28 shrink-0 tracking-wide">{field.label}</span>
-                    <InlineTextField
+                    <InlineLostReasonField
                       value={raw as string | null}
-                      label="reason"
                       onSave={val => onUpdate({ Lost_Dead_Reason: val })}
                     />
                   </div>

@@ -86,14 +86,15 @@ export async function logTouchActivity(
   prospectId:  string,
   input:       LogTouchInput,
 ): Promise<string> {
+  const zohoType = activityTypeToZoho(input.type);
   return createActivityLog(accessToken, {
     prospectId,
-    activityType:         activityTypeToZoho(input.type),
+    activityType:         zohoType,
     activityDate:         input.date ?? getTodayCT(),
     description:          input.description,
     outcome:              input.outcome ?? null,
     fulfillsCommitmentId: input.fulfillsCommitmentId ?? null,
-    name:                 input.description.slice(0, 80) || null,
+    name:                 zohoType,
   });
 }
 
