@@ -18,6 +18,8 @@ import type {
   ZohoFundedRecord,
 } from "@/types";
 import { listProspectActivityLogs } from "@/lib/zoho/activity-log";
+import { getVoiceCallsByUserNumber, toVoiceUserNumber } from "@/lib/zoho/voice";
+import type { ZohoVoiceCall } from "@/types";
 import { printLog } from "@/lib/utils";
 
 /** Fields to request from the Prospects module. */
@@ -1228,6 +1230,49 @@ export async function getProspectCalls(
     return merged;
   } catch (err) {
     wrapZohoError("Zoho Prospect calls error", err);
+  }
+}
+
+/**
+ * Zoho Voice call logs for a prospect, filtered by phone number.
+ *
+ * Surfaces calls placed/received via Zoho Voice that the CRM Calls module
+ * may not link to the Prospect record (the Voice integration writes records
+ * into the Calls module against contacts/leads/the matching customer phone,
+ * but prospect-module calls without a `What_Id` link won't show up via
+ * `getProspectCalls`).
+ *
+ * Phones are normalized to country+10 digits (US: "1" + 10) per the Voice
+ * `userNumber` filter contract; results are deduped by `logid` across phones.
+ * Returns [] when no usable phone is supplied — Voice API requires the filter.
+ */
+export async function getProspectVoiceCalls(
+  accessToken: string,
+  phones: Array<string | null | undefined>,
+): Promise<ZohoVoiceCall[]> {
+  const userNumbers = [
+    ...new Set(phones.map((p) => toVoiceUserNumber(p)).filter((p): p is string => !!p)),
+  ];
+  if (userNumbers.length === 0) return [];
+
+  try {
+    const buckets = await Promise.all(
+      userNumbers.map((n) => getVoiceCallsByUserNumber(accessToken, n)),
+    );
+    const seen = new Set<string>();
+    const merged: ZohoVoiceCall[] = [];
+    for (const log of buckets.flat()) {
+      // Only outbound calls — calls placed TO the prospect's phone, not FROM it.
+      if (log?.call_type !== "outgoing") continue;
+      if (log.logid && !seen.has(log.logid)) {
+        seen.add(log.logid);
+        merged.push(log);
+      }
+    }
+    merged.sort((a, b) => Number(b.start_time ?? 0) - Number(a.start_time ?? 0));
+    return merged;
+  } catch (err) {
+    wrapZohoError("Zoho Voice calls error", err);
   }
 }
 

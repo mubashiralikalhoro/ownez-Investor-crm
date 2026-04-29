@@ -26,7 +26,7 @@ import {
 import type {
   ZohoProspectDetail, ZohoNote, ZohoTimelineEvent, ZohoEmail,
   ZohoCall, ZohoEvent, ZohoStageHistory, ZohoAttachment, ZohoTask, ZohoFundedRecord,
-  ZohoActivityLog,
+  ZohoActivityLog, ZohoVoiceCall,
 } from "@/types";
 import { getAppUserProfile } from "@/lib/auth-storage";
 import { SetLastViewed } from "@/components/set-last-viewed";
@@ -618,6 +618,7 @@ interface UnifiedActivity {
   kind: ActivityKind;
   sortTime: number;
   call?: ZohoCall;
+  voiceCall?: ZohoVoiceCall;
   email?: ZohoEmail;
   event?: ZohoEvent;
   note?: ZohoNote;
@@ -628,6 +629,7 @@ interface UnifiedActivity {
 function buildUnifiedTimeline(
   timeline: ZohoTimelineEvent[], emails: ZohoEmail[],
   calls: ZohoCall[], events: ZohoEvent[],
+  voiceCalls: ZohoVoiceCall[] = [],
 ): UnifiedActivity[] {
   const items: UnifiedActivity[] = [];
 
@@ -661,6 +663,10 @@ function buildUnifiedTimeline(
   calls.forEach((c) => {
     const ts = c.Call_Start_Time ?? c.Created_Time ?? null;
     items.push({ id: `ca-${c.id}`, kind: "call", sortTime: ts ? new Date(ts).getTime() : 0, call: c });
+  });
+  voiceCalls.forEach((v) => {
+    const ms = Number(v.start_time ?? 0);
+    items.push({ id: `vc-${v.logid}`, kind: "call", sortTime: Number.isFinite(ms) ? ms : 0, voiceCall: v });
   });
   events.forEach((ev) => {
     const ts = ev.Start_DateTime ?? ev.Created_Time ?? null;
@@ -1024,7 +1030,6 @@ function ProspectIdentityBar({
 
       <div className="mt-2 flex items-center gap-2 flex-wrap">
         <span className="inline-flex items-center gap-1.5 rounded-full bg-navy/8 px-3 py-1.5 text-xs font-medium text-navy">
-          <Phone size={12} className="shrink-0" />
           <InlineTextField
             value={prospect.Phone}
             label="phone"
@@ -1814,12 +1819,18 @@ function EntryRow({ activity, isLast, children }: { activity: UnifiedActivity; i
     : activity.timeline?.action === "function_executed" ? "automation"
     : activity.kind;
   return (
-    <div className="flex items-start gap-3">
-      <div className="flex flex-col items-center shrink-0" style={{ width: 28 }}>
+    <div className={`relative flex items-start gap-3 ${!isLast ? "pb-3" : ""}`}>
+      {!isLast && (
+        <div
+          aria-hidden
+          className="absolute w-px bg-border"
+          style={{ left: 13.5, top: 32, bottom: 0 }}
+        />
+      )}
+      <div className="relative shrink-0" style={{ width: 28 }}>
         <ActivityIcon kind={iconKind} />
-        {!isLast && <div className="w-px flex-1 bg-border mt-1 min-h-[12px]" />}
       </div>
-      <div className={`flex-1 min-w-0 ${!isLast ? "mb-3" : ""}`}>{children}</div>
+      <div className="flex-1 min-w-0">{children}</div>
     </div>
   );
 }
@@ -1849,6 +1860,105 @@ function CallCardContent({ activity }: { activity: UnifiedActivity }) {
       <div className="mt-1.5 flex items-center gap-3 flex-wrap text-[11px] text-muted-foreground">
         {c.Owner && <span className="font-medium">{c.Owner.name}</span>}
         {c.Call_Duration && <span>· {c.Call_Duration}</span>}
+      </div>
+    </div>
+  );
+}
+
+function VoiceCallCardContent({ activity }: { activity: UnifiedActivity }) {
+  const v = activity.voiceCall!;
+  const isIncoming = v.call_type === "incoming";
+  const isMissed = v.call_type === "missed";
+  const CallIcon = isMissed ? PhoneCall : isIncoming ? PhoneIncoming : PhoneOutgoing;
+  const ms = Number(v.start_time ?? 0);
+  const ts = Number.isFinite(ms) && ms > 0 ? new Date(ms).toISOString() : null;
+  const label =
+    isMissed ? "Missed Call" :
+    isIncoming ? "Inbound Call" :
+    v.call_type === "outgoing" ? "Outbound Call" :
+    v.call_type === "bridged" ? "Bridged Call" :
+    v.call_type === "forward" ? "Forwarded Call" :
+    `Voice (${v.call_type})`;
+  const statusPill = isMissed
+    ? "bg-alert-red/10 text-alert-red"
+    : v.hangup_cause === "NORMAL_CLEARING"
+    ? "bg-healthy-green/10 text-healthy-green"
+    : "bg-muted text-muted-foreground";
+  const statusText = v.hangup_cause_displayname ?? v.hangup_cause ?? null;
+
+  const fromLine = (v.caller_id_name && v.caller_id_name !== v.caller_id_number)
+    ? `${v.caller_id_name} (${v.caller_id_number ?? "—"})`
+    : (v.caller_id_number ?? "—");
+  const toLine = (v.destination_name && v.destination_name !== v.destination_number)
+    ? `${v.destination_name} (${v.destination_number ?? "—"})`
+    : (v.destination_number ?? "—");
+
+  const vmDuration = v.voicemail?.recording_duration;
+  const transcriptionStatus = v.call_recording_transcription_status;
+  const hasTranscription = transcriptionStatus && transcriptionStatus !== "not_initiated";
+
+  return (
+    <div className="rounded-lg border bg-card px-3 py-2.5">
+      {/* Header */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-sm font-medium text-navy flex items-center gap-1.5">
+          <CallIcon size={12} className="shrink-0" />
+          {label}
+        </span>
+        {ts && <span className="text-[11px] text-muted-foreground">{formatTimeOnly(ts)}</span>}
+        <span className="rounded-full bg-blue-500/10 text-blue-600 px-2 py-0.5 text-[10px] font-medium">
+          Zoho Voice
+        </span>
+        {statusText && (
+          <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${statusPill}`}>
+            {statusText}
+          </span>
+        )}
+        {v.is_test_call && (
+          <span className="rounded-full bg-gold/15 text-gold px-2 py-0.5 text-[10px] font-medium">Test</span>
+        )}
+        {v.is_bh_off_duty && (
+          <span className="rounded-full bg-muted text-muted-foreground px-2 py-0.5 text-[10px] font-medium">After hours</span>
+        )}
+        {v.isBlocked && (
+          <span className="rounded-full bg-alert-red/10 text-alert-red px-2 py-0.5 text-[10px] font-medium">Blocked</span>
+        )}
+      </div>
+
+      {/* Contact name */}
+      {v.contact_name && (
+        <p className="mt-1 text-sm text-foreground/80">{v.contact_name}</p>
+      )}
+
+      {/* From → To */}
+      <div className="mt-1 text-xs text-muted-foreground">
+        <span className="font-medium text-foreground/70">{fromLine}</span>
+        <span className="mx-1.5">→</span>
+        <span className="font-medium text-foreground/70">{toLine}</span>
+      </div>
+
+      {/* Hangup detail (long form) */}
+      {v.hangup_cause_description && v.hangup_cause_description !== statusText && (
+        <p className="mt-1 text-[11px] text-muted-foreground italic">{v.hangup_cause_description}</p>
+      )}
+
+      {/* Voicemail block */}
+      {v.voicemail?.recording_filename && (
+        <div className="mt-1.5 rounded-md border border-blue-500/20 bg-blue-500/5 px-2 py-1 text-[11px] text-blue-700">
+          Voicemail{vmDuration ? ` · ${vmDuration}s` : ""}
+          {v.voicemail.content_type ? ` · ${v.voicemail.content_type}` : ""}
+        </div>
+      )}
+
+      {/* Meta row */}
+      <div className="mt-1.5 flex items-center gap-x-3 gap-y-1 flex-wrap text-[11px] text-muted-foreground">
+        {v.agent_number && <span className="font-medium">Agent: {v.agent_number}</span>}
+        {v.did_number && <span>· Line: {v.did_number}</span>}
+        {v.duration && v.duration !== "00:00" && <span>· Duration: {v.duration}</span>}
+        {v.department && <span>· Dept: {v.department}</span>}
+        {v.disconnected_by && <span>· Ended by: {v.disconnected_by}</span>}
+        {hasTranscription && <span>· Transcript: {transcriptionStatus}</span>}
+        {v.feedback != null && <span>· Feedback: {v.feedback}/5</span>}
       </div>
     </div>
   );
@@ -2091,11 +2201,12 @@ function ProspectActivityTimeline({ prospectId }: { prospectId: string }) {
     if (fetched || fetching) return;
     setFetching(true); setFetchErr(null);
     try {
-      const [tlRes, emRes, caRes, evRes] = await Promise.all([
-        fetch(`/api/prospects/${prospectId}/timeline`, { credentials: "same-origin" }),
-        fetch(`/api/prospects/${prospectId}/emails`,   { credentials: "same-origin" }),
-        fetch(`/api/prospects/${prospectId}/calls`,    { credentials: "same-origin" }),
-        fetch(`/api/prospects/${prospectId}/events`,   { credentials: "same-origin" }),
+      const [tlRes, emRes, caRes, evRes, vcRes] = await Promise.all([
+        fetch(`/api/prospects/${prospectId}/timeline`,     { credentials: "same-origin" }),
+        fetch(`/api/prospects/${prospectId}/emails`,       { credentials: "same-origin" }),
+        fetch(`/api/prospects/${prospectId}/calls`,        { credentials: "same-origin" }),
+        fetch(`/api/prospects/${prospectId}/events`,       { credentials: "same-origin" }),
+        fetch(`/api/prospects/${prospectId}/voice-calls`,  { credentials: "same-origin" }),
       ]);
 
       // 401 → attempt token refresh once, then retry
@@ -2110,14 +2221,15 @@ function ProspectActivityTimeline({ prospectId }: { prospectId: string }) {
       const safe = async <T,>(res: Response): Promise<T[]> =>
         res.ok ? ((await res.json()) as { data: T[] }).data ?? [] : [];
 
-      const [tl, em, ca, ev] = await Promise.all([
+      const [tl, em, ca, ev, vc] = await Promise.all([
         safe<ZohoTimelineEvent>(tlRes),
         safe<ZohoEmail>(emRes),
         safe<ZohoCall>(caRes),
         safe<ZohoEvent>(evRes),
+        safe<ZohoVoiceCall>(vcRes),
       ]);
 
-      setActivities(buildUnifiedTimeline(tl, em, ca, ev));
+      setActivities(buildUnifiedTimeline(tl, em, ca, ev, vc));
       setFetched(true);
     } catch (e) {
       setFetchErr(e instanceof Error ? e.message : "Failed to load timeline.");
@@ -2194,32 +2306,46 @@ function ProspectActivityTimeline({ prospectId }: { prospectId: string }) {
 
               {filtered.length === 0
                 ? <p className="py-6 text-center text-sm text-muted-foreground italic">No activity logged yet.</p>
-                : <div className="space-y-6">
-                    {groups.map(group => (
-                      <div key={group.dateLabel}>
-                        <div className="flex items-center gap-3 mb-3 pl-[40px]">
-                          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{group.dateLabel}</span>
-                          <div className="flex-1 h-px bg-border" />
-                          <span className="text-[11px] text-muted-foreground/50 shrink-0">{group.items.length}</span>
+                : <div>
+                    {groups.map((group, gi) => {
+                      const isLastGroup = gi === groups.length - 1;
+                      return (
+                        <div key={group.dateLabel}>
+                          {/* Date header — connector line passes through (except first group) */}
+                          <div className="relative flex items-center gap-3 pb-3">
+                            {gi > 0 && (
+                              <div
+                                aria-hidden
+                                className="absolute w-px bg-border"
+                                style={{ left: 13.5, top: 0, bottom: 0 }}
+                              />
+                            )}
+                            <div className="shrink-0" style={{ width: 28 }} />
+                            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{group.dateLabel}</span>
+                            <div className="flex-1 h-px bg-border" />
+                            <span className="text-[11px] text-muted-foreground/50 shrink-0">{group.items.length}</span>
+                          </div>
+                          <div>
+                            {group.items.map((activity, idx) => {
+                              const isLastInGroup = idx === group.items.length - 1;
+                              const isLast = isLastGroup && isLastInGroup;
+                              const card =
+                                activity.activityLog && activity.kind === "commitment" ? <ActivityLogCommitmentCardContent activity={activity} /> :
+                                activity.activityLog                                   ? <ActivityLogTouchCardContent       activity={activity} /> :
+                                activity.kind === "call" && activity.voiceCall ? <VoiceCallCardContent activity={activity} /> :
+                                activity.kind === "call"    ? <CallCardContent    activity={activity} /> :
+                                activity.kind === "email"   ? <EmailCardContent   activity={activity} /> :
+                                activity.kind === "meeting" ? <MeetingCardContent activity={activity} /> :
+                                activity.kind === "note"    ? <NoteCardContent    activity={activity} /> :
+                                                              <TimelineCardContent activity={activity} />;
+                              return (
+                                <EntryRow key={activity.id} activity={activity} isLast={isLast}>{card}</EntryRow>
+                              );
+                            })}
+                          </div>
                         </div>
-                        <div>
-                          {group.items.map((activity, idx) => {
-                            const isLast = idx === group.items.length - 1;
-                            const card =
-                              activity.activityLog && activity.kind === "commitment" ? <ActivityLogCommitmentCardContent activity={activity} /> :
-                              activity.activityLog                                   ? <ActivityLogTouchCardContent       activity={activity} /> :
-                              activity.kind === "call"    ? <CallCardContent    activity={activity} /> :
-                              activity.kind === "email"   ? <EmailCardContent   activity={activity} /> :
-                              activity.kind === "meeting" ? <MeetingCardContent activity={activity} /> :
-                              activity.kind === "note"    ? <NoteCardContent    activity={activity} /> :
-                                                            <TimelineCardContent activity={activity} />;
-                            return (
-                              <EntryRow key={activity.id} activity={activity} isLast={isLast}>{card}</EntryRow>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
               }
             </>

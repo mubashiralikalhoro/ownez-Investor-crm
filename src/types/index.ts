@@ -192,6 +192,64 @@ export type ZohoCall = {
   Created_Time: string | null;
 };
 
+/**
+ * Zoho Voice call log entry returned by GET https://voice.zoho.com/rest/json/zv/logs.
+ * Fields are a superset of what the Voice API actually returns — most are optional
+ * since the API omits keys based on call_type (e.g. voicemail only on missed calls).
+ */
+export type ZohoVoiceCall = {
+  logid: string;                  // unique call id (UUID)
+  call_type: string;              // "incoming" | "outgoing" | "missed" | "bridged" | "forward"
+  start_time: string | null;      // epoch milliseconds (string)
+  answer_time: string | null;
+  end_time: string | null;
+  duration: string | null;        // "MM:SS"
+  caller_id_number: string | null;
+  caller_id_name: string | null;
+  destination_number: string | null;
+  destination_name: string | null;
+  user_number: string | null;     // external (customer) phone, the filter target
+  agent_number: string | null;
+  did_number: string | null;      // Zoho number used (your line)
+  contact_name: string | null;
+  department: string | null;
+  bh_profile?: string | null;     // business-hours profile, e.g. "Sales Team"
+  hangup_cause: string | null;
+  hangup_cause_displayname: string | null;
+  hangup_cause_description: string | null;
+  disconnected_by: string | null; // "agent" | "customer"
+  sip_hangup_disposition?: string | null;
+  call_recording_transcription_status: string | null;
+  is_test_call?: boolean;
+  is_bh_off_duty?: boolean;
+  isBlocked?: boolean;
+  feedback?: number | null;       // 1-5 rating
+  voice_credits?: {
+    voice?: number;
+    recording?: number;
+    transcription?: number;
+    total?: number;
+    free_minutes?: number;
+  } | null;
+  voicemail?: {
+    recording_filename?: string;
+    recording_duration?: number;
+    content_type?: string;
+    dfs_path?: string;
+    block_id?: string;
+    recording_size_in_bytes?: number;
+  } | null;
+};
+
+/** Raw shape returned by Zoho Voice /logs endpoint. */
+export type ZohoVoiceLogsResponse = {
+  meta?: { total?: number };
+  logs?: ZohoVoiceCall[];
+  status?: string;
+  code?: string;
+  message?: string;
+};
+
 /** Event/Meeting record from GET /Prospect/{id}/Events or GET /Events. Response key is "data". */
 export type ZohoEvent = {
   id: string;
