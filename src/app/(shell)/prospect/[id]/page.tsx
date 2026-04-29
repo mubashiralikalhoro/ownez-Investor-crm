@@ -1007,18 +1007,7 @@ function ProspectIdentityBar({
 
       <div className="mt-2 flex items-center gap-2 flex-wrap">
         <span className="inline-flex items-center gap-1.5 rounded-full bg-navy/8 px-3 py-1.5 text-xs font-medium text-navy">
-          {prospect.Phone ? (
-            <a
-              href={`tel:${prospect.Phone.replace(/[^+\d]/g, "")}`}
-              aria-label={`Call ${prospect.Phone}`}
-              className="text-navy hover:text-gold transition-colors shrink-0"
-              onClick={e => e.stopPropagation()}
-            >
-              <Phone size={12} />
-            </a>
-          ) : (
-            <Phone size={12} />
-          )}
+          <Phone size={12} className="shrink-0" />
           <InlineTextField
             value={prospect.Phone}
             label="phone"
