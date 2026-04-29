@@ -94,7 +94,9 @@ function useLostReasons(enabled: boolean): {
   loading: boolean;
   fellBack: boolean;
 } {
-  const [options,  setOptions]  = useState<LostReasonOption[]>([]);
+  const [options,  setOptions]  = useState<LostReasonOption[]>(
+    () => LOST_REASONS.map(r => ({ display_value: r.label, actual_value: r.label }))
+  );
   const [loading,  setLoading]  = useState(false);
   const [fellBack, setFellBack] = useState(false);
 
@@ -772,6 +774,8 @@ function ProspectStageBar({
     : null;
 
   const pendingIsSpecial = pending && PROSPECT_SPECIAL_STAGES.some(s => s.value === pending);
+  const pendingIsDead = pending === "Dead / Lost";
+  const lostReasons = useLostReasons(pendingIsDead);
 
   const resetForm = () => {
     setPending(null); setNextAction(""); setNextActionDate(""); setReason(""); setChangeErr(null);
@@ -895,8 +899,8 @@ function ProspectStageBar({
                 Move to <span className="text-gold">{pending}</span>
               </p>
 
-              {/* Next Action — hidden when moving to Funded (no follow-up needed) */}
-              {pending !== "Funded" && (
+              {/* Next Action — hidden when moving to Funded or Dead / Lost */}
+              {pending !== "Funded" && !pendingIsDead && (
                 <>
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
@@ -930,12 +934,25 @@ function ProspectStageBar({
                   <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
                     Reason
                   </label>
-                  <input
-                    value={reason}
-                    onChange={e => setReason(e.target.value)}
-                    placeholder="Why this stage? (optional)"
-                    className="w-full border border-border rounded px-2 py-1.5 text-xs text-navy bg-white focus:outline-none focus:border-gold"
-                  />
+                  {pendingIsDead ? (
+                    <select
+                      value={reason}
+                      onChange={e => setReason(e.target.value)}
+                      className="w-full border border-border rounded px-2 py-1.5 text-xs text-navy bg-white focus:outline-none focus:border-gold"
+                    >
+                      <option value="">— Select reason —</option>
+                      {lostReasons.options.map(o => (
+                        <option key={o.actual_value} value={o.actual_value}>{o.display_value}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      value={reason}
+                      onChange={e => setReason(e.target.value)}
+                      placeholder="Why this stage? (optional)"
+                      className="w-full border border-border rounded px-2 py-1.5 text-xs text-navy bg-white focus:outline-none focus:border-gold"
+                    />
+                  )}
                 </div>
               )}
 
@@ -1052,10 +1069,11 @@ function sixMonthsOutCT(): string {
 }
 
 function ProspectNextActionBar({
-  prospect, onUpdate,
+  prospect, onUpdate, onRefresh,
 }: {
   prospect: ZohoProspectDetail;
   onUpdate: (fields: Record<string, unknown>) => Promise<void>;
+  onRefresh?: () => void | Promise<void>;
 }) {
   const today = new Date().toISOString().split("T")[0];
   const isOverdue = prospect.Next_Action_Date != null && prospect.Next_Action_Date < today;
@@ -1231,14 +1249,24 @@ function ProspectNextActionBar({
       const reasonValue = lostReason ?? "";
       const reasonLabel =
         lostReasons.options.find(o => o.actual_value === reasonValue)?.display_value ?? reasonValue;
-      const noteText = dropTarget === "dead"
-        ? `Stage changed to Dead/Lost. Reason: ${reasonLabel}.${reasonNote.trim() ? " " + reasonNote.trim() : ""}`
+      const stageNoteText = dropTarget === "dead"
+        ? `Stage changed to Dead/Lost. Reason: ${reasonLabel}.`
         : `Stage changed to Nurture. Re-engage: ${reengageDate}.`;
       await makeRequest(`/api/prospects/${prospect.id}/activities`, {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ type: "stage_change", description: noteText }),
+        body:    JSON.stringify({ type: "stage_change", description: stageNoteText }),
       });
+
+      // 2a. Persist user-typed reason note as separate Note record.
+      const trimmedReasonNote = reasonNote.trim();
+      if (dropTarget === "dead" && trimmedReasonNote) {
+        await makeRequest(`/api/prospects/${prospect.id}/notes`, {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body:    JSON.stringify({ content: trimmedReasonNote }),
+        });
+      }
 
       // 3. Update prospect stage + fields.
       const fields: Record<string, unknown> = {
@@ -1250,6 +1278,7 @@ function ProspectNextActionBar({
       await onUpdate(fields);
       setOpenCommitId(null);
       setMode("view");
+      await onRefresh?.();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to end lead.");
     } finally {
@@ -1946,7 +1975,11 @@ function TimelineCardContent({ activity }: { activity: UnifiedActivity }) {
     : t.action.charAt(0).toUpperCase() + t.action.slice(1);
 
   if (isStageChange && t.field_history) {
-    const stageField = t.field_history.find(f => f.api_name === "Pipeline_Stage");
+    const stageField  = t.field_history.find(f => f.api_name === "Pipeline_Stage");
+    const reasonField = t.field_history.find(f => f.api_name === "Lost_Dead_Reason");
+    const otherFields = t.field_history.filter(
+      f => f.api_name !== "Pipeline_Stage" && f.api_name !== "Lost_Dead_Reason",
+    );
     return (
       <div className="rounded-lg border bg-card px-3 py-2.5">
         <div className="flex items-center gap-2 flex-wrap">
@@ -1965,6 +1998,33 @@ function TimelineCardContent({ activity }: { activity: UnifiedActivity }) {
             <span className="text-xs text-muted-foreground line-through">{stageField._value?.old ?? "—"}</span>
             <ArrowRight size={11} className="text-muted-foreground/50 shrink-0" />
             <span className="text-xs font-semibold text-navy">{stageField._value?.new ?? "—"}</span>
+          </div>
+        )}
+        {reasonField?._value?.new && (
+          <p className="mt-1.5 text-xs text-navy/80">
+            <span className="font-medium text-muted-foreground">Reason:</span> {reasonField._value.new}
+          </p>
+        )}
+        {otherFields.length > 0 && (
+          <div className="mt-2 flex flex-col gap-1.5 rounded-md bg-muted/40 px-2.5 py-2">
+            {otherFields.map(fh => {
+              const oldVal = fh._value?.old ?? null;
+              const newVal = fh._value?.new ?? null;
+              return (
+                <div key={fh.id} className="flex items-start gap-2 text-xs">
+                  <span className="font-medium text-navy/70 shrink-0 min-w-[110px]">{fh.field_label}</span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-muted-foreground line-through">
+                      {oldVal !== null ? formatTimelineFieldValue(oldVal, fh.data_type) : "—"}
+                    </span>
+                    <ArrowRight size={11} className="text-muted-foreground/50 shrink-0" />
+                    <span className="text-navy">
+                      {newVal !== null ? formatTimelineFieldValue(newVal, fh.data_type) : "—"}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -2877,7 +2937,7 @@ export default function ProspectDetailPage() {
       <div className="sticky top-[33px] z-10 bg-background border-b px-3 md:px-8 py-3 md:py-4 space-y-2 md:space-y-3 overflow-hidden">
         <ProspectIdentityBar prospect={prospect} onUpdate={updateProspect} />
         {prospect.Pipeline_Stage !== "Funded" && (
-          <ProspectNextActionBar prospect={prospect} onUpdate={updateProspect} />
+          <ProspectNextActionBar prospect={prospect} onUpdate={updateProspect} onRefresh={fetchAll} />
         )}
         {prospect.Pipeline_Stage !== "Funded" && (
           <ProspectQuickLog
