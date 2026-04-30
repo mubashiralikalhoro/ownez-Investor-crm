@@ -229,6 +229,76 @@ function InlineTextField({
   );
 }
 
+function InlinePhoneField({
+  value, onSave,
+}: {
+  value: string | null | undefined;
+  onSave: (val: string | null) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value ?? "");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const start = () => { setDraft(value ?? ""); setErr(null); setEditing(true); };
+  const cancel = () => { setEditing(false); setErr(null); };
+  const save = async () => {
+    if (saving) return;
+    setSaving(true); setErr(null);
+    try { await onSave(draft.trim() || null); setEditing(false); }
+    catch (e) { setErr(e instanceof Error ? e.message : "Save failed"); }
+    finally { setSaving(false); }
+  };
+
+  if (!editing) {
+    return (
+      <span className="inline-flex items-center gap-1">
+        {value ? (
+          <a
+            href={`tel:${value}`}
+            className="text-navy hover:text-gold transition-colors"
+            data-zdialer-phone={value}
+          >
+            {value}
+          </a>
+        ) : (
+          <button
+            type="button"
+            onClick={start}
+            className="text-muted-foreground/40 italic text-xs hover:text-navy transition-colors"
+          >
+            Add phone
+          </button>
+        )}
+        {value && (
+          <button
+            type="button"
+            onClick={start}
+            aria-label="Edit phone"
+            className="opacity-30 hover:opacity-100 transition-opacity shrink-0"
+          >
+            <Pencil size={10} />
+          </button>
+        )}
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex flex-wrap items-center gap-2">
+      <input
+        type="tel"
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        onKeyDown={e => { if (e.key === "Enter") save(); if (e.key === "Escape") cancel(); }}
+        autoFocus
+        className="border border-gold/50 rounded-md px-2.5 py-1.5 text-sm text-navy bg-white focus:outline-none focus:ring-2 focus:ring-gold/40 shadow-sm w-44 md:w-56"
+      />
+      <InlineSaveBar saving={saving} onSave={save} onCancel={cancel} error={err} />
+    </span>
+  );
+}
+
 function InlineCurrencyField({
   value, label = "amount", onSave,
 }: {
@@ -1030,10 +1100,8 @@ function ProspectIdentityBar({
 
       <div className="mt-2 flex items-center gap-2 flex-wrap">
         <span className="inline-flex items-center gap-1.5 rounded-full bg-navy/8 px-3 py-1.5 text-xs font-medium text-navy">
-          <InlineTextField
+          <InlinePhoneField
             value={prospect.Phone}
-            label="phone"
-            inputType="tel"
             onSave={val => onUpdate({ Phone: val })}
           />
         </span>
