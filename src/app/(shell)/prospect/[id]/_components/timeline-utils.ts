@@ -46,7 +46,9 @@ export function buildUnifiedTimeline(
     }
     const isStage = t.field_history?.some((f) => f.api_name === "Pipeline_Stage");
     const isAuto = t.source === "custom_function" || t.source === "workflow";
-    const kind: ActivityKind = isStage ? "stage_change" : isAuto ? "automation" : "update";
+    // Skip system-executed functions/workflows — noise for the user. Keep stage changes.
+    if (isAuto && !isStage) return;
+    const kind: ActivityKind = isStage ? "stage_change" : "update";
     items.push({ id: `tl-${t.id}`, kind, sortTime: new Date(t.audited_time).getTime(), timeline: t });
   });
   emails.forEach((e) => {

@@ -21,7 +21,6 @@ const FILTER_OPTIONS = [
   { key: "email", label: "Emails" }, { key: "meeting", label: "Meetings" },
   { key: "commitment", label: "Commitments" },
   { key: "stage_change", label: "Stage Changes" }, { key: "update", label: "Updates" },
-  { key: "automation", label: "Automated" },
 ];
 
 /**
