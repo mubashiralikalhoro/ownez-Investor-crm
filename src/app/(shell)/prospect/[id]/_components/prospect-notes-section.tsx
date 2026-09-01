@@ -15,8 +15,8 @@ export function ProspectNotesSection({
 }: {
   notes: ZohoNote[];
   onAdd: (title: string, content: string) => Promise<void>;
-  onEdit: (noteId: string, title: string, content: string) => Promise<void>;
-  onDelete: (noteId: string) => Promise<void>;
+  onEdit: (noteId: string, title: string, content: string, source: ZohoNote["source"]) => Promise<void>;
+  onDelete: (noteId: string, source: ZohoNote["source"]) => Promise<void>;
 }) {
   const [expanded, setExpanded] = useState(true);
   const [addingNote, setAddingNote] = useState(false);
@@ -26,6 +26,7 @@ export function ProspectNotesSection({
   const [addError, setAddError] = useState<string | null>(null);
 
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editSource, setEditSource] = useState<ZohoNote["source"]>("notes");
   const [editTitle, setEditTitle] = useState("");
   const [editContent, setEditContent] = useState("");
   const [editSubmitting, setEditSubmitting] = useState(false);
@@ -46,6 +47,7 @@ export function ProspectNotesSection({
 
   const startEdit = (note: ZohoNote) => {
     setEditingId(note.id);
+    setEditSource(note.source);
     setEditTitle(note.Note_Title ?? "");
     setEditContent(note.Note_Content ?? "");
     setEditError(null);
@@ -62,7 +64,7 @@ export function ProspectNotesSection({
     if (!editingId || !editContent.trim() || editSubmitting) return;
     setEditSubmitting(true); setEditError(null);
     try {
-      await onEdit(editingId, editTitle, editContent);
+      await onEdit(editingId, editTitle, editContent, editSource);
       setEditingId(null);
     } catch (e) {
       setEditError(e instanceof Error ? e.message : "Failed to update note");
@@ -71,9 +73,9 @@ export function ProspectNotesSection({
     }
   };
 
-  const handleDelete = async (noteId: string) => {
+  const handleDelete = async (note: ZohoNote) => {
     if (!window.confirm("Delete this note? This cannot be undone.")) return;
-    try { await onDelete(noteId); }
+    try { await onDelete(note.id, note.source); }
     catch (e) { alert(e instanceof Error ? e.message : "Failed to delete note"); }
   };
 
@@ -187,7 +189,7 @@ export function ProspectNotesSection({
                       <Pencil size={11} />
                     </button>
                     <button
-                      onClick={() => handleDelete(note.id)}
+                      onClick={() => handleDelete(note)}
                       className="p-1 rounded text-muted-foreground hover:text-alert-red hover:bg-alert-red/10 transition-colors"
                       title="Delete note"
                     >

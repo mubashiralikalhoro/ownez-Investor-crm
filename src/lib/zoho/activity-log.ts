@@ -154,6 +154,25 @@ export async function updateActivityLog(
   }
 }
 
+/** DELETE /crm/v8/Activity_Log/{id} */
+export async function deleteActivityLog(
+  accessToken: string,
+  id:          string,
+): Promise<void> {
+  try {
+    const { data: json } = await zohoApi.delete<ZohoWriteResponse>(
+      accessToken,
+      `/Activity_Log/${id}`,
+    );
+    const row = json.data?.[0];
+    if (row?.status !== "success") {
+      throw new Error(`Activity_Log delete failed: [${row?.code ?? "UNKNOWN"}] ${row?.message ?? ""}`);
+    }
+  } catch (err) {
+    throwZohoError("Activity_Log delete", err);
+  }
+}
+
 // ─── Search / list ───────────────────────────────────────────────────────────
 
 /**
@@ -201,6 +220,17 @@ export async function listProspectActivityLogs(
   prospectId:  string,
 ): Promise<ZohoActivityLog[]> {
   return searchAll(accessToken, `(Prospect:equals:${prospectId})`);
+}
+
+/** Activity_Log "Note" rows for one prospect. */
+export async function listProspectNoteActivityLogs(
+  accessToken: string,
+  prospectId:  string,
+): Promise<ZohoActivityLog[]> {
+  return searchAll(
+    accessToken,
+    `((Prospect:equals:${prospectId})and(Activity_Type:equals:Note))`,
+  );
 }
 
 /** Open commitments for one prospect (any due date). */

@@ -142,8 +142,8 @@ export default function ProspectDetailPage() {
     setNotes(prev => [note, ...prev]);
   }, [id]);
 
-  const editNote = useCallback(async (noteId: string, title: string, content: string) => {
-    const res = await makeRequest(`/api/prospects/${id}/notes/${noteId}`, {
+  const editNote = useCallback(async (noteId: string, title: string, content: string, source: ZohoNote["source"]) => {
+    const res = await makeRequest(`/api/prospects/${id}/notes/${noteId}?source=${source}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title, content }),
@@ -157,8 +157,8 @@ export default function ProspectDetailPage() {
     ));
   }, [id]);
 
-  const deleteNote = useCallback(async (noteId: string) => {
-    const res = await makeRequest(`/api/prospects/${id}/notes/${noteId}`, { method: "DELETE" });
+  const deleteNote = useCallback(async (noteId: string, source: ZohoNote["source"]) => {
+    const res = await makeRequest(`/api/prospects/${id}/notes/${noteId}?source=${source}`, { method: "DELETE" });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       throw new Error((body as { error?: string }).error ?? "Failed to delete note.");

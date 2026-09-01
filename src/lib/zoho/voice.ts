@@ -1,8 +1,12 @@
 import axios, { type AxiosError } from "axios";
-import type { ZohoVoiceCall, ZohoVoiceLogsResponse } from "@/types";
+import type {
+  ZohoVoiceCall, ZohoVoiceLogsResponse, ZohoVoiceSms, ZohoVoiceSmsLogsResponse,
+} from "@/types";
 
 const ZOHO_VOICE_BASE_URL = "https://voice.zoho.com/rest/json/zv";
+const ZOHO_VOICE_SMS_BASE_URL = "https://voice.zoho.com/rest/json/v1/sms";
 const PAGE_SIZE = 200;
+const SMS_PAGE_SIZE = 100; // /sms/logs default page size
 const MAX_PAGES = 10;
 
 const _client = axios.create({
@@ -70,6 +74,34 @@ export async function getVoiceCallsByUserNumber(
     const batch = data?.logs ?? [];
     all.push(...batch);
     if (batch.length < PAGE_SIZE) break;
+    if (data?.meta?.total != null && from + batch.length >= data.meta.total) break;
+  }
+  return all;
+}
+
+/**
+ * Fetch Zoho Voice SMS logs for a single normalized customer number
+ * (same digits-only country+10 format as `toVoiceUserNumber`). Both
+ * directions (incoming + outgoing) are returned — it's a conversation.
+ * Paginates like the call-log fetch, capped at MAX_PAGES * SMS_PAGE_SIZE.
+ *
+ * Requires the ZohoVoice.sms.READ OAuth scope.
+ */
+export async function getSmsByCustomerNumber(
+  accessToken: string,
+  customerNumber: string,
+): Promise<ZohoVoiceSms[]> {
+  const all: ZohoVoiceSms[] = [];
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const from = page * SMS_PAGE_SIZE;
+    const { data } = await _client.get<ZohoVoiceSmsLogsResponse>("/logs", {
+      baseURL: ZOHO_VOICE_SMS_BASE_URL,
+      params: { from, size: SMS_PAGE_SIZE, customerNumber, messageType: "all" },
+      headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
+    });
+    const batch = data?.logs ?? data?.smslogs ?? [];
+    all.push(...batch);
+    if (batch.length < SMS_PAGE_SIZE) break;
     if (data?.meta?.total != null && from + batch.length >= data.meta.total) break;
   }
   return all;

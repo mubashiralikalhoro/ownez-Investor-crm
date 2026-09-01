@@ -90,6 +90,13 @@ export type ZohoProspectDetail = {
 /** A note on a Prospect record (GET /Prospect/{id}/Notes). */
 export type ZohoNote = {
   id: string;
+  /**
+   * Which Zoho module this row came from — decides the edit/delete path.
+   * `notes`        → Notes module, CRUD via `/Notes/{id}`
+   * `activity_log` → Activity_Log row with `Activity_Type: "Note"`,
+   *                  CRUD via `/Activity_Log/{id}`
+   */
+  source: "notes" | "activity_log";
   Note_Title: string | null;
   Note_Content: string | null;
   Created_Time: string;
@@ -245,6 +252,37 @@ export type ZohoVoiceCall = {
 export type ZohoVoiceLogsResponse = {
   meta?: { total?: number };
   logs?: ZohoVoiceCall[];
+  status?: string;
+  code?: string;
+  message?: string;
+};
+
+/**
+ * Zoho Voice SMS log entry returned by GET https://voice.zoho.com/rest/json/v1/sms/logs.
+ * Mirrors ZohoVoiceCall — fields are optional/defensive since the Voice API
+ * omits keys depending on message type (e.g. mmsMeta only on MMS).
+ */
+export type ZohoVoiceSms = {
+  logid: string;                   // unique message id
+  messageType: string;             // "incoming" | "outgoing"
+  status: string | null;           // "DELIVERED" | "UNDELIVERED" | "EXPIRED" | ...
+  customerNumber: string | null;   // the prospect's phone, the filter target
+  customerName: string | null;
+  senderId: string | null;         // Zoho number used (your SMS line)
+  message: string | null;          // SMS body
+  sentTime: string | null;         // timestamp (epoch ms string or formatted)
+  submittedTime: string | null;
+  isMMS?: boolean;
+  mmsMeta?: unknown;
+  userName: string | null;         // Voice agent who sent/received
+  zsoid?: string | null;
+};
+
+/** Raw shape returned by Zoho Voice /sms/logs endpoint. */
+export type ZohoVoiceSmsLogsResponse = {
+  meta?: { total?: number };
+  logs?: ZohoVoiceSms[];
+  smslogs?: ZohoVoiceSms[];        // defensive — Voice endpoints vary on the array key
   status?: string;
   code?: string;
   message?: string;

@@ -48,8 +48,9 @@ export async function GET(request: NextRequest) {
   //   ZohoCRM.users.READ          — GET /users for role resolution + admin user list
   //   ZohoCRM.settings.fields.ALL — read + update Lead_Source picklist (admin lead-source sync)
   //   ZohoVoice.call.READ         — read Zoho Voice call logs by phone (unlinked Voice calls)
+  //   ZohoVoice.sms.READ          — read Zoho Voice SMS logs by customer phone
   const scope =
-    "ZohoCRM.modules.ALL,ZohoCRM.users.READ,ZohoCRM.settings.fields.ALL,ZohoVoice.call.READ";
+    "ZohoCRM.modules.ALL,ZohoCRM.users.READ,ZohoCRM.settings.fields.ALL,ZohoVoice.call.READ,ZohoVoice.sms.READ";
 
   const params = new URLSearchParams({
     scope,

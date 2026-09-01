@@ -5,19 +5,20 @@ import {
   ChevronDown, ChevronRight, CalendarDays, Loader2, AlertCircle,
 } from "lucide-react";
 import type {
-  ZohoTimelineEvent, ZohoEmail, ZohoCall, ZohoEvent, ZohoVoiceCall,
+  ZohoTimelineEvent, ZohoEmail, ZohoCall, ZohoEvent, ZohoVoiceCall, ZohoVoiceSms,
 } from "@/types";
 import {
   type UnifiedActivity, buildUnifiedTimeline, groupByDate,
 } from "./timeline-utils";
 import {
-  EntryRow, CallCardContent, VoiceCallCardContent, EmailCardContent,
+  EntryRow, CallCardContent, VoiceCallCardContent, SmsCardContent, EmailCardContent,
   MeetingCardContent, NoteCardContent, ActivityLogTouchCardContent,
   ActivityLogCommitmentCardContent, TimelineCardContent,
 } from "./timeline-cards";
 
 const FILTER_OPTIONS = [
   { key: "all", label: "All" }, { key: "call", label: "Calls" },
+  { key: "text", label: "Texts" },
   { key: "email", label: "Emails" }, { key: "meeting", label: "Meetings" },
   { key: "commitment", label: "Commitments" },
   { key: "stage_change", label: "Stage Changes" }, { key: "update", label: "Updates" },
@@ -39,12 +40,13 @@ export function ProspectActivityTimeline({ prospectId }: { prospectId: string })
     if (fetched || fetching) return;
     setFetching(true); setFetchErr(null);
     try {
-      const [tlRes, emRes, caRes, evRes, vcRes] = await Promise.all([
+      const [tlRes, emRes, caRes, evRes, vcRes, smRes] = await Promise.all([
         fetch(`/api/prospects/${prospectId}/timeline`,     { credentials: "same-origin" }),
         fetch(`/api/prospects/${prospectId}/emails`,       { credentials: "same-origin" }),
         fetch(`/api/prospects/${prospectId}/calls`,        { credentials: "same-origin" }),
         fetch(`/api/prospects/${prospectId}/events`,       { credentials: "same-origin" }),
         fetch(`/api/prospects/${prospectId}/voice-calls`,  { credentials: "same-origin" }),
+        fetch(`/api/prospects/${prospectId}/sms`,          { credentials: "same-origin" }),
       ]);
 
       // 401 → attempt token refresh once, then retry
@@ -59,15 +61,16 @@ export function ProspectActivityTimeline({ prospectId }: { prospectId: string })
       const safe = async <T,>(res: Response): Promise<T[]> =>
         res.ok ? ((await res.json()) as { data: T[] }).data ?? [] : [];
 
-      const [tl, em, ca, ev, vc] = await Promise.all([
+      const [tl, em, ca, ev, vc, sm] = await Promise.all([
         safe<ZohoTimelineEvent>(tlRes),
         safe<ZohoEmail>(emRes),
         safe<ZohoCall>(caRes),
         safe<ZohoEvent>(evRes),
         safe<ZohoVoiceCall>(vcRes),
+        safe<ZohoVoiceSms>(smRes),
       ]);
 
-      setActivities(buildUnifiedTimeline(tl, em, ca, ev, vc));
+      setActivities(buildUnifiedTimeline(tl, em, ca, ev, vc, sm));
       setFetched(true);
     } catch (e) {
       setFetchErr(e instanceof Error ? e.message : "Failed to load timeline.");
@@ -172,6 +175,7 @@ export function ProspectActivityTimeline({ prospectId }: { prospectId: string })
                                 activity.activityLog                                   ? <ActivityLogTouchCardContent       activity={activity} /> :
                                 activity.kind === "call" && activity.voiceCall ? <VoiceCallCardContent activity={activity} /> :
                                 activity.kind === "call"    ? <CallCardContent    activity={activity} /> :
+                                activity.kind === "text" && activity.sms ? <SmsCardContent activity={activity} /> :
                                 activity.kind === "email"   ? <EmailCardContent   activity={activity} /> :
                                 activity.kind === "meeting" ? <MeetingCardContent activity={activity} /> :
                                 activity.kind === "note"    ? <NoteCardContent    activity={activity} /> :

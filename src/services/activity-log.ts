@@ -14,6 +14,8 @@ import {
   listOpenCommitments,
   listAllOpenOverdueCommitments,
   listProspectActivityLogs,
+  listProspectNoteActivityLogs,
+  deleteActivityLog,
 } from "@/lib/zoho/activity-log";
 import { getTodayCT } from "@/lib/format";
 import type { ActivityType } from "@/lib/types";
@@ -78,6 +80,7 @@ export type LogTouchInput = {
   description:           string;
   outcome?:              "connected" | "attempted" | null;
   fulfillsCommitmentId?: string | null;
+  name?:                 string | null;                    // display name; defaults to the Zoho activity type
 };
 
 /** Write one non-commitment Activity_Log row. Returns its id. */
@@ -94,8 +97,42 @@ export async function logTouchActivity(
     description:          input.description,
     outcome:              input.outcome ?? null,
     fulfillsCommitmentId: input.fulfillsCommitmentId ?? null,
-    name:                 zohoType,
+    name:                 input.name?.trim() || zohoType,
   });
+}
+
+// ─── Note rows (Activity_Type: "Note") ───────────────────────────────────────
+
+/**
+ * The Notes section merges two stores: the Zoho Notes module and Activity_Log
+ * rows of type "Note" (what this app writes, and what the timeline renders).
+ * These helpers cover the Activity_Log half.
+ */
+
+export async function listNoteActivities(
+  accessToken: string,
+  prospectId:  string,
+): Promise<ZohoActivityLog[]> {
+  return listProspectNoteActivityLogs(accessToken, prospectId);
+}
+
+export async function updateNoteActivity(
+  accessToken: string,
+  activityId:  string,
+  title:       string,
+  content:     string,
+): Promise<void> {
+  return updateActivityLog(accessToken, activityId, {
+    description: content.trim(),
+    name:        title.trim() || "Note",
+  });
+}
+
+export async function deleteNoteActivity(
+  accessToken: string,
+  activityId:  string,
+): Promise<void> {
+  return deleteActivityLog(accessToken, activityId);
 }
 
 // ─── Commitments ─────────────────────────────────────────────────────────────

@@ -16,10 +16,11 @@ import type {
   ZohoAttachment,
   ZohoTask,
   ZohoFundedRecord,
+  ZohoActivityLog,
 } from "@/types";
-import { listProspectActivityLogs } from "@/lib/zoho/activity-log";
-import { getVoiceCallsByUserNumber, toVoiceUserNumber } from "@/lib/zoho/voice";
-import type { ZohoVoiceCall } from "@/types";
+import { listProspectActivityLogs, listProspectNoteActivityLogs } from "@/lib/zoho/activity-log";
+import { getSmsByCustomerNumber, getVoiceCallsByUserNumber, toVoiceUserNumber } from "@/lib/zoho/voice";
+import type { ZohoVoiceCall, ZohoVoiceSms } from "@/types";
 import { printLog } from "@/lib/utils";
 
 /** Fields to request from the Prospects module. */
@@ -278,9 +279,9 @@ export async function getRecentActivityNotes(
     );
     // Only keep notes that belong to Prospect records
     const all = json.data ?? [];
-    return all.filter(
-      n => !n.Parent_Id || n.Parent_Id.module?.api_name === "Prospect"
-    );
+    return all
+      .filter(n => !n.Parent_Id || n.Parent_Id.module?.api_name === "Prospect")
+      .map(n => ({ ...n, source: "notes" as const }));
   } catch (err) {
     if (err instanceof AxiosError && err.response?.status === 204) return [];
     // If sort_by is unsupported, retry without it
@@ -294,9 +295,9 @@ export async function getRecentActivityNotes(
         }
       );
       const all = json2.data ?? [];
-      return all.filter(
-        n => !n.Parent_Id || n.Parent_Id.module?.api_name === "Prospect"
-      );
+      return all
+        .filter(n => !n.Parent_Id || n.Parent_Id.module?.api_name === "Prospect")
+        .map(n => ({ ...n, source: "notes" as const }));
     }
     wrapZohoError("Zoho recent activity notes error", err);
   }
@@ -702,6 +703,7 @@ export async function createProspectNote(
   const now = new Date().toISOString();
   return {
     id: result.details.id,
+    source: "notes",
     Note_Title: title.trim() || null,
     Note_Content: content.trim(),
     Created_Time: now,
@@ -1074,25 +1076,83 @@ export async function getProspectById(
   }
 }
 
-/** GET /Prospect/{id}/Notes */
+/**
+ * An Activity_Log row of type "Note" rendered as a ZohoNote.
+ *
+ * `Name` carries the note title, but rows written without one default to the
+ * literal activity type ("Note") — that is not a title, so it is dropped.
+ */
+function activityLogToNote(row: ZohoActivityLog): ZohoNote {
+  const title = row.Name?.trim();
+  return {
+    id:            row.id,
+    source:        "activity_log",
+    Note_Title:    title && title !== "Note" ? title : null,
+    Note_Content:  row.Description ?? null,
+    Created_Time:  row.Created_Time ?? `${row.Activity_Date}T00:00:00`,
+    Modified_Time: row.Modified_Time,
+    Created_By:    row.Created_By,
+    Modified_By:   row.Modified_By,
+    Owner:         row.Owner,
+    Parent_Id:     row.Prospect
+      ? {
+          name:   row.Prospect.name ?? "",
+          id:     row.Prospect.id,
+          module: { api_name: "Prospect", id: row.Prospect.id },
+        }
+      : null,
+  };
+}
+
+/**
+ * All notes for one prospect, newest first.
+ *
+ * Two stores hold notes and both must be shown: the Zoho Notes module
+ * (`/Prospect/{id}/Notes`, where notes written from Zoho's own UI land) and
+ * Activity_Log rows with `Activity_Type: "Note"` (what this app writes, and
+ * what the activity timeline renders). Either side may fail or be empty
+ * independently — a failure on one does not hide the other.
+ */
 export async function getProspectNotes(
   accessToken: string,
   id: string
 ): Promise<ZohoNote[]> {
-  try {
-    const { data: json } = await zohoApi.get<{ data?: ZohoNote[] }>(
-      accessToken,
-      `/Prospect/${id}/Notes`,
-      {
-        fields: "id,Note_Title,Note_Content,Created_Time,Modified_Time,Created_By,Modified_By,Owner",
-        per_page: 50,
+  const [moduleRes, activityRes] = await Promise.allSettled([
+    (async (): Promise<ZohoNote[]> => {
+      try {
+        const { data: json } = await zohoApi.get<{ data?: Omit<ZohoNote, "source">[] }>(
+          accessToken,
+          `/Prospect/${id}/Notes`,
+          {
+            fields: "id,Note_Title,Note_Content,Created_Time,Modified_Time,Created_By,Modified_By,Owner",
+            per_page: 50,
+          }
+        );
+        return (json.data ?? []).map(n => ({ ...n, source: "notes" as const }));
+      } catch (err) {
+        if (err instanceof AxiosError && err.response?.status === 204) return [];
+        wrapZohoError("Zoho Prospect notes error", err);
       }
-    );
-    return json.data ?? [];
-  } catch (err) {
-    if (err instanceof AxiosError && err.response?.status === 204) return [];
-    wrapZohoError("Zoho Prospect notes error", err);
+    })(),
+    listProspectNoteActivityLogs(accessToken, id).then(rows => rows.map(activityLogToNote)),
+  ]);
+
+  // Only a total failure is an error — one store being unreachable must not
+  // hide the notes held by the other.
+  if (moduleRes.status === "rejected" && activityRes.status === "rejected") {
+    throw moduleRes.reason instanceof Error
+      ? moduleRes.reason
+      : new Error("Zoho Prospect notes error");
   }
+
+  const merged = [
+    ...(moduleRes.status === "fulfilled" ? moduleRes.value : []),
+    ...(activityRes.status === "fulfilled" ? activityRes.value : []),
+  ];
+
+  return merged.sort((a, b) =>
+    (b.Created_Time ?? "").localeCompare(a.Created_Time ?? "")
+  );
 }
 
 /**
@@ -1273,6 +1333,55 @@ export async function getProspectVoiceCalls(
     return merged;
   } catch (err) {
     wrapZohoError("Zoho Voice calls error", err);
+  }
+}
+
+/** Parse a Voice SMS timestamp — epoch-ms string or formatted date — to ms. */
+function smsTimeMs(sms: ZohoVoiceSms): number {
+  const raw = sms.sentTime ?? sms.submittedTime;
+  if (!raw) return 0;
+  const n = Number(raw);
+  if (Number.isFinite(n) && n > 0) return n;
+  const parsed = new Date(raw).getTime();
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+/**
+ * Zoho Voice SMS logs for a prospect, filtered by phone number.
+ *
+ * Parallel surface to `getProspectVoiceCalls` — texts sent/received via
+ * Zoho Voice (ZDialer) live only in Voice, never in CRM, so this is the
+ * sole read path. Both directions are kept (it's a conversation thread).
+ *
+ * Phones are normalized to country+10 digits per the Voice
+ * `customerNumber` filter contract; results are deduped by `logid`
+ * across phones. Returns [] when no usable phone is supplied.
+ */
+export async function getProspectSms(
+  accessToken: string,
+  phones: Array<string | null | undefined>,
+): Promise<ZohoVoiceSms[]> {
+  const customerNumbers = [
+    ...new Set(phones.map((p) => toVoiceUserNumber(p)).filter((p): p is string => !!p)),
+  ];
+  if (customerNumbers.length === 0) return [];
+
+  try {
+    const buckets = await Promise.all(
+      customerNumbers.map((n) => getSmsByCustomerNumber(accessToken, n)),
+    );
+    const seen = new Set<string>();
+    const merged: ZohoVoiceSms[] = [];
+    for (const sms of buckets.flat()) {
+      if (sms?.logid && !seen.has(sms.logid)) {
+        seen.add(sms.logid);
+        merged.push(sms);
+      }
+    }
+    merged.sort((a, b) => smsTimeMs(b) - smsTimeMs(a));
+    return merged;
+  } catch (err) {
+    wrapZohoError("Zoho Voice SMS error", err);
   }
 }
 

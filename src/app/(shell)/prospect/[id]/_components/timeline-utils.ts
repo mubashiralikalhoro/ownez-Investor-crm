@@ -1,12 +1,12 @@
 import { formatCurrency, formatDate } from "@/lib/format";
 import type {
   ZohoTimelineEvent, ZohoEmail, ZohoCall, ZohoEvent, ZohoNote,
-  ZohoActivityLog, ZohoVoiceCall,
+  ZohoActivityLog, ZohoVoiceCall, ZohoVoiceSms,
 } from "@/types";
 
 // ─── Unified Activity ─────────────────────────────────────────────────────────
 
-export type ActivityKind = "call" | "email" | "meeting" | "note" | "update" | "stage_change" | "automation" | "commitment" | "activity_log_touch";
+export type ActivityKind = "call" | "text" | "email" | "meeting" | "note" | "update" | "stage_change" | "automation" | "commitment" | "activity_log_touch";
 
 export interface UnifiedActivity {
   id: string;
@@ -14,6 +14,7 @@ export interface UnifiedActivity {
   sortTime: number;
   call?: ZohoCall;
   voiceCall?: ZohoVoiceCall;
+  sms?: ZohoVoiceSms;
   email?: ZohoEmail;
   event?: ZohoEvent;
   note?: ZohoNote;
@@ -21,10 +22,21 @@ export interface UnifiedActivity {
   activityLog?: ZohoActivityLog;
 }
 
+/** Parse a Voice SMS timestamp — epoch-ms string or formatted date — to ms. */
+export function smsTimeMs(sms: ZohoVoiceSms): number {
+  const raw = sms.sentTime ?? sms.submittedTime;
+  if (!raw) return 0;
+  const n = Number(raw);
+  if (Number.isFinite(n) && n > 0) return n;
+  const parsed = new Date(raw).getTime();
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
 export function buildUnifiedTimeline(
   timeline: ZohoTimelineEvent[], emails: ZohoEmail[],
   calls: ZohoCall[], events: ZohoEvent[],
   voiceCalls: ZohoVoiceCall[] = [],
+  smsLogs: ZohoVoiceSms[] = [],
 ): UnifiedActivity[] {
   const items: UnifiedActivity[] = [];
 
@@ -34,6 +46,7 @@ export function buildUnifiedTimeline(
       const isCommitment = al.Activity_Type === "Commitment_Set";
       const typeToKind: Record<string, ActivityKind> = {
         Call: "call", Email: "email", Meeting: "meeting", Note: "note",
+        Text_Message: "text",
       };
       const kind: ActivityKind = isCommitment
         ? "commitment"
@@ -65,6 +78,9 @@ export function buildUnifiedTimeline(
     const ms = Number(v.start_time ?? 0);
     items.push({ id: `vc-${v.logid}`, kind: "call", sortTime: Number.isFinite(ms) ? ms : 0, voiceCall: v });
   });
+  smsLogs.forEach((s) => {
+    items.push({ id: `sms-${s.logid}`, kind: "text", sortTime: smsTimeMs(s), sms: s });
+  });
   events.forEach((ev) => {
     const ts = ev.Start_DateTime ?? ev.Created_Time ?? null;
     items.push({ id: `ev-${ev.id}`, kind: "meeting", sortTime: ts ? new Date(ts).getTime() : 0, event: ev });
@@ -74,12 +90,12 @@ export function buildUnifiedTimeline(
 }
 
 export const KIND_COLOR: Record<ActivityKind, string> = {
-  call: "#2563eb", email: "#7c3aed", meeting: "#0891b2", note: "#6b7280",
+  call: "#2563eb", text: "#16a34a", email: "#7c3aed", meeting: "#0891b2", note: "#6b7280",
   update: "#1e3a5f", stage_change: "#f59e0b", automation: "#9ca3af",
   commitment: "#d97706", activity_log_touch: "#059669",
 };
 export const KIND_LABEL: Record<ActivityKind, string> = {
-  call: "Call", email: "Email", meeting: "Meeting", note: "Note",
+  call: "Call", text: "Text", email: "Email", meeting: "Meeting", note: "Note",
   update: "Updated", stage_change: "Stage Change", automation: "Automation",
   commitment: "Commitment", activity_log_touch: "Activity",
 };

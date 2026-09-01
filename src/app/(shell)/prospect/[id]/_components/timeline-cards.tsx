@@ -4,17 +4,18 @@ import React from "react";
 import {
   Phone, Mail, Zap, PhoneCall, PhoneIncoming, PhoneOutgoing, CalendarDays,
   FileText, Pencil, ArrowRight, CheckSquare, MessageSquare,
+  MessageSquareText, Image as ImageIcon,
 } from "lucide-react";
 import { NoteContent } from "@/components/ui/note-editor";
 import { formatDate } from "@/lib/format";
 import {
   type ActivityKind, type UnifiedActivity, KIND_COLOR,
   getSourceMeta, getAutomationLabel, formatTimelineFieldValue,
-  formatTimeOnly, formatDateTime,
+  formatTimeOnly, formatDateTime, smsTimeMs,
 } from "./timeline-utils";
 
 const KIND_ICON: Record<ActivityKind, React.ReactNode> = {
-  call: <Phone size={12} />, email: <Mail size={12} />, meeting: <CalendarDays size={12} />,
+  call: <Phone size={12} />, text: <MessageSquareText size={12} />, email: <Mail size={12} />, meeting: <CalendarDays size={12} />,
   note: <FileText size={12} />, update: <Pencil size={12} />, stage_change: <ArrowRight size={12} />,
   automation: <Zap size={12} />, commitment: <CheckSquare size={12} />, activity_log_touch: <MessageSquare size={12} />,
 };
@@ -175,6 +176,67 @@ export function VoiceCallCardContent({ activity }: { activity: UnifiedActivity }
         {hasTranscription && <span>· Transcript: {transcriptionStatus}</span>}
         {v.feedback != null && <span>· Feedback: {v.feedback}/5</span>}
       </div>
+    </div>
+  );
+}
+
+const SMS_STATUS_PILL: Record<string, string> = {
+  DELIVERED: "bg-healthy-green/10 text-healthy-green",
+  UNDELIVERED: "bg-alert-red/10 text-alert-red",
+  EXPIRED: "bg-alert-red/10 text-alert-red",
+};
+
+export function SmsCardContent({ activity }: { activity: UnifiedActivity }) {
+  const s = activity.sms!;
+  const isIncoming = s.messageType === "incoming";
+  const ms = smsTimeMs(s);
+  const ts = ms > 0 ? new Date(ms).toISOString() : null;
+  const statusPill = s.status ? (SMS_STATUS_PILL[s.status] ?? "bg-muted text-muted-foreground") : null;
+
+  return (
+    <div className="rounded-lg border bg-card px-3 py-2.5">
+      {/* Header */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-sm font-medium text-navy flex items-center gap-1.5">
+          <MessageSquareText size={12} className="shrink-0" />
+          {isIncoming ? "Inbound Text" : "Outbound Text"}
+        </span>
+        {ts && <span className="text-[11px] text-muted-foreground">{formatTimeOnly(ts)}</span>}
+        <span className="rounded-full bg-blue-500/10 text-blue-600 px-2 py-0.5 text-[10px] font-medium">
+          Zoho Voice
+        </span>
+        {s.status && statusPill && (
+          <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${statusPill}`}>
+            {s.status}
+          </span>
+        )}
+        {s.isMMS && (
+          <span className="rounded-full bg-gold/15 text-gold px-2 py-0.5 text-[10px] font-medium inline-flex items-center gap-1">
+            <ImageIcon size={9} /> MMS
+          </span>
+        )}
+      </div>
+
+      {/* Message body */}
+      {s.message && (
+        <p className="mt-1 text-sm text-foreground/80 whitespace-pre-wrap break-words">{s.message}</p>
+      )}
+
+      {/* From → To */}
+      <div className="mt-1 text-xs text-muted-foreground">
+        <span className="font-medium text-foreground/70">
+          {isIncoming ? (s.customerName || s.customerNumber || "—") : (s.senderId ?? "—")}
+        </span>
+        <span className="mx-1.5">→</span>
+        <span className="font-medium text-foreground/70">
+          {isIncoming ? (s.senderId ?? "—") : (s.customerName || s.customerNumber || "—")}
+        </span>
+      </div>
+
+      {/* Meta row */}
+      {s.userName && (
+        <p className="mt-1.5 text-[11px] text-muted-foreground font-medium">{s.userName}</p>
+      )}
     </div>
   );
 }
